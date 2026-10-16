@@ -6,7 +6,7 @@
 import Foundation
 
 /// 浮层在屏幕上的展示锚点
-public enum DisplayAnchor: String, CaseIterable, Identifiable, Codable {
+public enum DisplayAnchor: String, CaseIterable, Identifiable, Codable, Sendable {
     case bottomCenter = "bottomCenter"
     case bottomLeft = "bottomLeft"
     case bottomRight = "bottomRight"

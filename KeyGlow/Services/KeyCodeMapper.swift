@@ -9,7 +9,7 @@ import Foundation
 /// macOS 虚拟按键码到显示字符与 SF Symbols 的精准映射
 public struct KeyCodeMapper {
 
-    public struct KeyInfo {
+    public struct KeyInfo: Sendable {
         public let content: KeyDisplayContent
         public let isSpecialFunctionKey: Bool
         public let identifier: String

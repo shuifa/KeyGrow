@@ -6,7 +6,7 @@
 import SwiftUI
 
 /// 特殊功能按键与修饰键的个性化强调色（参考 Keystroke Pro 独立配色设计）
-public enum SpecialKeyColor: String, CaseIterable, Identifiable, Codable {
+public enum SpecialKeyColor: String, CaseIterable, Identifiable, Codable, Sendable {
     case blue = "blue"
     case purple = "purple"
     case orange = "orange"

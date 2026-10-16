@@ -6,7 +6,7 @@
 import SwiftUI
 
 /// 键帽视觉主题风格
-public enum KeycapStyle: String, CaseIterable, Identifiable, Codable {
+public enum KeycapStyle: String, CaseIterable, Identifiable, Codable, Sendable {
     case classicDark = "classicDark"
     case frostedGlass = "frostedGlass"
     case auroraGlow = "auroraGlow"

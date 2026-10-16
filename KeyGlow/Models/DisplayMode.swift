@@ -6,7 +6,7 @@
 import Foundation
 
 /// 按键监听与展示过滤模式
-public enum DisplayMode: String, CaseIterable, Identifiable, Codable {
+public enum DisplayMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case shortcutsOnly = "shortcutsOnly"
     case allKeys = "allKeys"
 

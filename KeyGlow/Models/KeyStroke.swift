@@ -6,7 +6,7 @@
 import SwiftUI
 
 /// 键盘修饰键枚举
-public enum KeyModifier: String, CaseIterable, Codable, Hashable {
+public enum KeyModifier: String, CaseIterable, Codable, Hashable, Sendable {
     case control = "control"
     case option = "option"
     case shift = "shift"
@@ -44,7 +44,7 @@ public enum KeyModifier: String, CaseIterable, Codable, Hashable {
 }
 
 /// 键位内容展示载体（SF Symbol 图标或字符文本）
-public enum KeyDisplayContent: Equatable, Hashable {
+public enum KeyDisplayContent: Equatable, Hashable, Sendable {
     case symbol(name: String, fallbackText: String)
     case text(String)
 
@@ -59,7 +59,7 @@ public enum KeyDisplayContent: Equatable, Hashable {
 }
 
 /// 单次键盘触发的组合或按键对象
-public struct KeyStroke: Identifiable, Equatable {
+public struct KeyStroke: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let modifiers: [KeyModifier]
     public let content: KeyDisplayContent

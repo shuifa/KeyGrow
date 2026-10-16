@@ -86,10 +86,10 @@ public final class KeyMonitor: ObservableObject {
         // 为该按键调度专属的超时自动移除
         let strokeId = newStroke.id
         let duration = AppSettings.shared.displayDuration
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
             withAnimation(.easeInOut(duration: 0.24)) {
-                self.activeStrokes.removeAll(where: { $0.id == strokeId })
+                self?.activeStrokes.removeAll(where: { $0.id == strokeId })
             }
         }
     }
@@ -97,15 +97,15 @@ public final class KeyMonitor: ObservableObject {
 
 // MARK: - 后台工作线程实现
 
-private final class KeyMonitorWorker {
-    private let onKeyStroke: @Sendable (KeyStroke) -> Void
+private final class KeyMonitorWorker: @unchecked Sendable {
+    private let onKeyStroke: @MainActor @Sendable (KeyStroke) -> Void
     private var thread: Thread?
     private var runLoop: CFRunLoop?
     private var machPort: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var isRunning: Bool = false
 
-    init(onKeyStroke: @escaping @Sendable (KeyStroke) -> Void) {
+    init(onKeyStroke: @escaping @MainActor @Sendable (KeyStroke) -> Void) {
         self.onKeyStroke = onKeyStroke
     }
 
@@ -242,15 +242,16 @@ private final class KeyMonitorWorker {
         )
 
         // 检查显示过滤模式
+        let callback = self.onKeyStroke
         Task { @MainActor in
             let mode = AppSettings.shared.displayMode
             switch mode {
             case .shortcutsOnly:
                 if isShortcut {
-                    self.onKeyStroke(stroke)
+                    callback(stroke)
                 }
             case .allKeys:
-                self.onKeyStroke(stroke)
+                callback(stroke)
             }
         }
     }
