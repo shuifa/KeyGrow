@@ -52,7 +52,7 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "refs/heads/main" ]; then
-            TAG_NAME="v0.4"
+            TAG_NAME="v0.5"
           fi
           echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
 
