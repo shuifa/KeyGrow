@@ -52,7 +52,7 @@ jobs:
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "refs/heads/main" ]; then
-            TAG_NAME="v0.3"
+            TAG_NAME="v0.4"
           fi
           echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
 
@@ -62,13 +62,24 @@ jobs:
 
           echo "Packaging $APP_PATH into $DMG_NAME and $ZIP_NAME..."
 
+          # 生成并注入全尺寸标准超清 AppIcon.icns（覆盖 16x16 至 1024x1024 全部分辨率）
+          mkdir -p icon_staging.iconset
+          cp KeyGlow/Assets.xcassets/AppIcon.appiconset/icon_*.png icon_staging.iconset/
+          iconutil -c icns icon_staging.iconset -o "$APP_PATH/Contents/Resources/AppIcon.icns"
+          rm -rf icon_staging.iconset
+
           # 1. 生成 ZIP 压缩包
           ditto -c -k --keepParent "$APP_PATH" "$ZIP_NAME"
 
           # 2. 准备 DMG 临时挂载目录并创建 /Applications 软链接
           mkdir -p dmg_staging
-          cp -R "$APP_PATH" dmg_staging/
+          ditto "$APP_PATH" dmg_staging/KeyGlow.app
           ln -s /Applications dmg_staging/Applications
+
+          # 为 DMG 磁盘卷设置独立的高清应用图标
+          cp "$APP_PATH/Contents/Resources/AppIcon.icns" dmg_staging/.VolumeIcon.icns
+          SetFile -c icnC dmg_staging/.VolumeIcon.icns 2>/dev/null || true
+          SetFile -a C dmg_staging 2>/dev/null || true
 
           # 3. 使用 hdiutil 制作 UDZO 只读高压缩 DMG 镜像
           hdiutil create -volname "KeyGlow" -srcfolder dmg_staging -ov -format UDZO "$DMG_NAME"
