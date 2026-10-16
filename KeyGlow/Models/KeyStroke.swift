@@ -66,6 +66,7 @@ public struct KeyStroke: Identifiable, Equatable, Sendable {
     public let rawIdentifier: String
     public let isShortcut: Bool
     public let isSpecialFunctionKey: Bool
+    public let isModifierOnly: Bool
     public var timestamp: Date
     public var repeatCount: Int
 
@@ -76,6 +77,7 @@ public struct KeyStroke: Identifiable, Equatable, Sendable {
         rawIdentifier: String,
         isShortcut: Bool = false,
         isSpecialFunctionKey: Bool = false,
+        isModifierOnly: Bool = false,
         timestamp: Date = Date(),
         repeatCount: Int = 1
     ) {
@@ -86,6 +88,7 @@ public struct KeyStroke: Identifiable, Equatable, Sendable {
         self.rawIdentifier = rawIdentifier
         self.isShortcut = isShortcut
         self.isSpecialFunctionKey = isSpecialFunctionKey
+        self.isModifierOnly = isModifierOnly
         self.timestamp = timestamp
         self.repeatCount = repeatCount
     }

@@ -93,5 +93,35 @@ public struct KeyCodeMapper {
         72: KeyInfo(content: .symbol(name: "speaker.wave.3", fallbackText: "Vol+"), isSpecialFunctionKey: true, identifier: "vol_up"),
         73: KeyInfo(content: .symbol(name: "speaker.wave.1", fallbackText: "Vol-"), isSpecialFunctionKey: true, identifier: "vol_down"),
         74: KeyInfo(content: .symbol(name: "speaker.slash", fallbackText: "Mute"), isSpecialFunctionKey: true, identifier: "mute"),
+
+        // 修饰键与锁定键
+        55: KeyInfo(content: .symbol(name: "command", fallbackText: "⌘"), isSpecialFunctionKey: true, identifier: "command"),
+        54: KeyInfo(content: .symbol(name: "command", fallbackText: "⌘"), isSpecialFunctionKey: true, identifier: "command"),
+        58: KeyInfo(content: .symbol(name: "option", fallbackText: "⌥"), isSpecialFunctionKey: true, identifier: "option"),
+        61: KeyInfo(content: .symbol(name: "option", fallbackText: "⌥"), isSpecialFunctionKey: true, identifier: "option"),
+        59: KeyInfo(content: .symbol(name: "control", fallbackText: "⌃"), isSpecialFunctionKey: true, identifier: "control"),
+        62: KeyInfo(content: .symbol(name: "control", fallbackText: "⌃"), isSpecialFunctionKey: true, identifier: "control"),
+        56: KeyInfo(content: .symbol(name: "shift", fallbackText: "⇧"), isSpecialFunctionKey: true, identifier: "shift"),
+        60: KeyInfo(content: .symbol(name: "shift", fallbackText: "⇧"), isSpecialFunctionKey: true, identifier: "shift"),
+        57: KeyInfo(content: .symbol(name: "capslock", fallbackText: "⇪"), isSpecialFunctionKey: true, identifier: "caps_lock"),
+
+        // FN / 地球仪键（63 为传统 Mac Fn 键，179 为现代 Mac 键盘 Globe/Fn 键）
+        63: KeyInfo(content: .symbol(name: "globe", fallbackText: "Fn"), isSpecialFunctionKey: true, identifier: "fn"),
+        179: KeyInfo(content: .symbol(name: "globe", fallbackText: "Fn"), isSpecialFunctionKey: true, identifier: "fn"),
+
+        // 扩展功能键 F13 ~ F20
+        105: KeyInfo(content: .text("F13"), isSpecialFunctionKey: true, identifier: "f13"),
+        107: KeyInfo(content: .text("F14"), isSpecialFunctionKey: true, identifier: "f14"),
+        113: KeyInfo(content: .text("F15"), isSpecialFunctionKey: true, identifier: "f15"),
+        106: KeyInfo(content: .text("F16"), isSpecialFunctionKey: true, identifier: "f16"),
+        64:  KeyInfo(content: .text("F17"), isSpecialFunctionKey: true, identifier: "f17"),
+        79:  KeyInfo(content: .text("F18"), isSpecialFunctionKey: true, identifier: "f18"),
+        80:  KeyInfo(content: .text("F19"), isSpecialFunctionKey: true, identifier: "f19"),
+        90:  KeyInfo(content: .text("F20"), isSpecialFunctionKey: true, identifier: "f20"),
+
+        // 辅助与小键盘按键
+        71:  KeyInfo(content: .symbol(name: "clear", fallbackText: "Clear"), isSpecialFunctionKey: true, identifier: "clear"),
+        76:  KeyInfo(content: .symbol(name: "return", fallbackText: "Enter"), isSpecialFunctionKey: true, identifier: "enter"),
+        114: KeyInfo(content: .symbol(name: "questionmark.circle", fallbackText: "Help"), isSpecialFunctionKey: true, identifier: "help"),
     ]
 }
