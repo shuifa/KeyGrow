@@ -16,13 +16,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode Version
+      - name: Select Xcode 16
         run: |
-          if [ -d "/Applications/Xcode_15.4.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.4.app
-          elif [ -d "/Applications/Xcode_15.3.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.3.app
+          XCODE_APP=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP=$(find /Applications -maxdepth 1 -name "Xcode*.app" | sort -V | tail -n 1)
           fi
+          echo "Selected Xcode: $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
 
       - name: Build Project
