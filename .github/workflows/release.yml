@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build, Package & Release DMG
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode 16
+        run: |
+          XCODE_APP=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP=$(find /Applications -maxdepth 1 -name "Xcode*.app" | sort -V | tail -n 1)
+          fi
+          echo "Selected Xcode: $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+
+      - name: Run Unit Tests
+        run: |
+          xcodebuild test \
+            -project KeyGlow.xcodeproj \
+            -scheme KeyGlow \
+            -destination 'platform=macOS' \
+            -only-testing:KeyGlowTests \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build Release App
+        run: |
+          xcodebuild clean build \
+            -project KeyGlow.xcodeproj \
+            -scheme KeyGlow \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath ./DerivedData \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package DMG and ZIP
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "refs/heads/main" ]; then
+            TAG_NAME="v0.3"
+          fi
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+
+          APP_PATH="./DerivedData/Build/Products/Release/KeyGlow.app"
+          DMG_NAME="KeyGlow-${TAG_NAME}.dmg"
+          ZIP_NAME="KeyGlow-${TAG_NAME}.zip"
+
+          echo "Packaging $APP_PATH into $DMG_NAME and $ZIP_NAME..."
+
+          # 1. 生成 ZIP 压缩包
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP_NAME"
+
+          # 2. 准备 DMG 临时挂载目录并创建 /Applications 软链接
+          mkdir -p dmg_staging
+          cp -R "$APP_PATH" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+
+          # 3. 使用 hdiutil 制作 UDZO 只读高压缩 DMG 镜像
+          hdiutil create -volname "KeyGlow" -srcfolder dmg_staging -ov -format UDZO "$DMG_NAME"
+
+          echo "DMG_NAME=$DMG_NAME" >> $GITHUB_ENV
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "KeyGlow ${{ env.TAG_NAME }}"
+          tag_name: ${{ env.TAG_NAME }}
+          files: |
+            ${{ env.DMG_NAME }}
+            ${{ env.ZIP_NAME }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

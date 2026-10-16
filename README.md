@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/shuifa/KeyGrow/releases/latest"><img src="https://img.shields.io/github/v/release/shuifa/KeyGrow?style=flat-square&color=blue" alt="Latest Release" /></a>
   <a href="https://github.com/shuifa/KeyGrow/actions"><img src="https://img.shields.io/github/actions/workflow/status/shuifa/KeyGrow/ci.yml?branch=main&label=Build%20%26%20Test&style=flat-square" alt="CI Status" /></a>
   <img src="https://img.shields.io/badge/Platform-macOS%2014.0+-black?style=flat-square&logo=apple" alt="macOS 14.0+" />
   <img src="https://img.shields.io/badge/Swift-5.9%20%2F%206.0-orange?style=flat-square&logo=swift" alt="Swift 5.9+" />
@@ -61,6 +62,16 @@
 - **零干扰穿透：** 基于定制 `NSPanel`，配置 `ignoresMouseEvents = true`，鼠标点击与手势 100% 穿透到底层窗口，绝不阻碍用户操作。
 - **多桌面与全屏穿透：** `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]`，虚拟桌面 Spaces 切换及全屏应用时始终悬浮常驻，不抢夺输入焦点。
 - **后台纯监听：** 基于 `CGEventTap`（`.listenOnly`）运行于专用后台线程，对日常打字零延迟；内置超时自愈机制；遇密码输入框（Secure Input）自动静默降级保护隐私。
+
+---
+
+## 📦 快速下载与安装
+
+直接前往 **[GitHub Releases](https://github.com/shuifa/KeyGrow/releases)** 下载最新版本的 `.dmg` 安装包：
+
+1. 下载 `KeyGlow-v0.3.dmg`。
+2. 双击打开并将 **KeyGlow.app** 拖入 **Applications（应用程序）** 目录。
+3. 启动应用并按提示授予辅助功能权限即可开始使用。
 
 ---
 
