@@ -21,6 +21,7 @@ public final class AppSettings: ObservableObject {
         static let sizeScale = "keyglow.sizeScale"
         static let showRepeatCount = "keyglow.showRepeatCount"
         static let specialKeyColor = "keyglow.specialKeyColor"
+        static let verticalOffset = "keyglow.verticalOffset"
     }
 
     // MARK: - Published Properties
@@ -43,6 +44,10 @@ public final class AppSettings: ObservableObject {
 
     @Published public var specialKeyColor: SpecialKeyColor {
         didSet { UserDefaults.standard.set(specialKeyColor.rawValue, forKey: Keys.specialKeyColor) }
+    }
+
+    @Published public var verticalOffset: Double {
+        didSet { UserDefaults.standard.set(verticalOffset, forKey: Keys.verticalOffset) }
     }
 
     @Published public var displayDuration: Double {
@@ -97,6 +102,9 @@ public final class AppSettings: ObservableObject {
 
         let duration = defaults.double(forKey: Keys.displayDuration)
         self.displayDuration = duration > 0 ? duration : 1.5
+
+        let vOffset = defaults.double(forKey: Keys.verticalOffset)
+        self.verticalOffset = vOffset > 0 ? vOffset : 70.0
 
         let scale = defaults.double(forKey: Keys.sizeScale)
         self.sizeScale = scale > 0 ? scale : 1.0

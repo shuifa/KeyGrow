@@ -81,6 +81,15 @@ public final class OverlayPanelController: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // 监听位置与偏移量设置变化，即时重算定位
+        Publishers.CombineLatest(AppSettings.shared.$anchor, AppSettings.shared.$verticalOffset)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                guard let self = self else { return }
+                self.updatePosition()
+            }
+            .store(in: &cancellables)
     }
 
     /// 根据当前配置的 Anchor 与当前屏幕/鼠标动态计算坐标
@@ -96,29 +105,31 @@ public final class OverlayPanelController: ObservableObject {
         guard let screen = targetScreen else { return }
 
         let screenFrame = screen.visibleFrame
-        let anchor = AppSettings.shared.anchor
+        let settings = AppSettings.shared
+        let anchor = settings.anchor
+        let vOffset = settings.verticalOffset
         var origin = CGPoint.zero
 
         switch anchor {
         case .bottomCenter:
-            // 屏幕底部居中（距 Dock / 底部边缘约 70pt）
+            // 屏幕底部居中（自适应可调节上下距离）
             origin.x = screenFrame.midX - (panelSize.width / 2)
-            origin.y = screenFrame.minY + 70
+            origin.y = screenFrame.minY + vOffset
 
         case .bottomLeft:
-            // 屏幕左下角（距左侧边缘约 40pt，距底部约 70pt）
+            // 屏幕左下角（自适应可调节上下距离）
             origin.x = screenFrame.minX + 40
-            origin.y = screenFrame.minY + 70
+            origin.y = screenFrame.minY + vOffset
 
         case .bottomRight:
-            // 屏幕右下角（距右侧边缘约 40pt，距底部约 70pt）
+            // 屏幕右下角（自适应可调节上下距离）
             origin.x = screenFrame.maxX - panelSize.width - 40
-            origin.y = screenFrame.minY + 70
+            origin.y = screenFrame.minY + vOffset
 
         case .topCenter:
-            // 屏幕顶部居中（距菜单栏下方约 60pt）
+            // 屏幕顶部居中（自适应可调节上下距离）
             origin.x = screenFrame.midX - (panelSize.width / 2)
-            origin.y = screenFrame.maxY - panelSize.height - 60
+            origin.y = screenFrame.maxY - panelSize.height - vOffset
 
         case .mouseFollow:
             // 靠近鼠标光标动态跟随，并防止溢出当前屏幕

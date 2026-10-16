@@ -1,0 +1,43 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test macOS App
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: |
+          if [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          elif [ -d "/Applications/Xcode_15.3.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.3.app
+          fi
+          xcodebuild -version
+
+      - name: Build Project
+        run: |
+          xcodebuild clean build \
+            -project KeyGlow.xcodeproj \
+            -scheme KeyGlow \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Run Unit Tests
+        run: |
+          xcodebuild test \
+            -project KeyGlow.xcodeproj \
+            -scheme KeyGlow \
+            -destination 'platform=macOS' \
+            -only-testing:KeyGlowTests \
+            CODE_SIGNING_ALLOWED=NO

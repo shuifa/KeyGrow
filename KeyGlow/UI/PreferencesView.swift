@@ -312,6 +312,21 @@ public struct PreferencesView: View {
                 .frame(width: 190)
             }
 
+            // 上下边缘距离调节滑块（除鼠标跟随外生效）
+            if settings.anchor != .mouseFollow {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Label("上下边缘距离", systemImage: "arrow.up.and.down")
+                            .font(.subheadline)
+                        Spacer()
+                        Text("\(Int(settings.verticalOffset)) pt")
+                            .font(.system(.subheadline, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    Slider(value: $settings.verticalOffset, in: 20...220, step: 5)
+                }
+            }
+
             Divider()
 
             // 停留时长滑块
