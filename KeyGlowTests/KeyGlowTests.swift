@@ -225,4 +225,274 @@ final class KeyGlowTests: XCTestCase {
         // 清理现场
         monitor.clearStroke()
     }
+
+    // MARK: - 动效改进专项测试 1：就地升级保持卡片身份 (id 不变) 且数量恒为 1
+    @MainActor
+    func testInPlaceUpgradePreservesIdAndCount() {
+        let monitor = KeyMonitor.shared
+        monitor.clearStroke()
+
+        // 1. 单独按下 Command
+        let cmdStroke = KeyStroke(
+            modifiers: [],
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            rawIdentifier: "command",
+            isShortcut: true,
+            isSpecialFunctionKey: true,
+            isModifierOnly: true
+        )
+        monitor.simulateKeyStroke(cmdStroke)
+
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        guard let firstStroke = monitor.activeStrokes.first else {
+            XCTFail("activeStrokes 应当包含一个按键")
+            return
+        }
+        let originalId = firstStroke.id
+
+        // 2. 在 Command 未松开时按下 Option -> 就地升级为 ⌥ ⌘
+        let optCmdStroke = KeyStroke(
+            modifiers: [.option],
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            rawIdentifier: "option+command",
+            isShortcut: true,
+            isSpecialFunctionKey: true,
+            isModifierOnly: true
+        )
+        monitor.simulateKeyStroke(optCmdStroke)
+
+        // 验证：卡片数依然为 1，且 id 必须与原卡片完全一致（就地生长）
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, originalId)
+        XCTAssertEqual(monitor.activeStrokes.first?.modifiers, [.option])
+
+        // 3. 在 ⌥ ⌘ 未松开时按下 K -> 就地升级为 ⌥ ⌘ K
+        let fullStroke = KeyStroke(
+            modifiers: [.option, .command],
+            content: .text("K"),
+            rawIdentifier: "option+command+k",
+            isShortcut: true,
+            isSpecialFunctionKey: false,
+            isModifierOnly: false
+        )
+        monitor.simulateKeyStroke(fullStroke)
+
+        // 验证：依然保持原 id，卡片数仍为 1
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, originalId)
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("K"))
+
+        monitor.clearStroke()
+    }
+
+    // MARK: - 动效改进专项测试 2：冲击计数 (punchCounters) 精准隔离，只对目标 id 递增
+    @MainActor
+    func testPunchCountersOnlyIncrementsTargetId() {
+        let monitor = KeyMonitor.shared
+        monitor.clearStroke()
+
+        // 1. 模拟第一张卡片
+        let stroke1 = KeyStroke(
+            modifiers: [.command],
+            content: .text("C"),
+            rawIdentifier: "cmd+c",
+            isShortcut: true
+        )
+        monitor.simulateKeyStroke(stroke1)
+        let id1 = stroke1.id
+        XCTAssertEqual(monitor.punchCounters[id1], 1)
+
+        // 2. 模拟第二张卡片
+        let stroke2 = KeyStroke(
+            modifiers: [.command],
+            content: .text("V"),
+            rawIdentifier: "cmd+v",
+            isShortcut: true
+        )
+        monitor.simulateKeyStroke(stroke2)
+        let id2 = stroke2.id
+
+        // 验证：id1 的计数未发生变化（依然为 1），只有新增的 id2 为 1
+        XCTAssertEqual(monitor.punchCounters[id1], 1)
+        XCTAssertEqual(monitor.punchCounters[id2], 1)
+
+        // 3. 模拟第 3 张修饰键卡片
+        let modStroke = KeyStroke(
+            modifiers: [],
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            rawIdentifier: "command",
+            isShortcut: true,
+            isSpecialFunctionKey: true,
+            isModifierOnly: true
+        )
+        monitor.simulateKeyStroke(modStroke)
+        let modId = modStroke.id
+        XCTAssertEqual(monitor.punchCounters[id1], 1)
+        XCTAssertEqual(monitor.punchCounters[id2], 1)
+        XCTAssertEqual(monitor.punchCounters[modId], 1)
+
+        // 4. 就地升级该修饰键卡片
+        let upgradeStroke = KeyStroke(
+            modifiers: [.command],
+            content: .text("Z"),
+            rawIdentifier: "cmd+z",
+            isShortcut: true,
+            isModifierOnly: false
+        )
+        monitor.simulateKeyStroke(upgradeStroke)
+
+        // 验证：id1 与 id2 依然为 1，被就地升级的目标卡 modId 计数递增到 2
+        XCTAssertEqual(monitor.punchCounters[id1], 1)
+        XCTAssertEqual(monitor.punchCounters[id2], 1)
+        XCTAssertEqual(monitor.punchCounters[modId], 2)
+
+        monitor.clearStroke()
+    }
+
+    // MARK: - 动效改进专项测试 3：就地升级后超时移除计时顺延（原 displayDuration 到点卡片仍在）
+    @MainActor
+    func testUpgradeExtendsDisplayDuration() async throws {
+        let monitor = KeyMonitor.shared
+        let settings = AppSettings.shared
+        monitor.clearStroke()
+
+        // 设置极短的停留时长便于测试（0.15 秒）
+        let originalDuration = settings.displayDuration
+        settings.displayDuration = 0.15
+        defer {
+            settings.displayDuration = originalDuration
+            monitor.clearStroke()
+        }
+
+        // 1. 模拟按下 Command
+        let cmdStroke = KeyStroke(
+            modifiers: [],
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            rawIdentifier: "command",
+            isShortcut: true,
+            isSpecialFunctionKey: true,
+            isModifierOnly: true
+        )
+        monitor.simulateKeyStroke(cmdStroke)
+        let targetId = cmdStroke.id
+
+        // 2. 等待 0.1 秒（接近原 0.15 秒超时点），此时执行就地升级
+        try await Task.sleep(nanoseconds: 100_000_000) // 0.1s
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+
+        let upgradedStroke = KeyStroke(
+            modifiers: [.command],
+            content: .text("K"),
+            rawIdentifier: "cmd+k",
+            isShortcut: true,
+            isModifierOnly: false
+        )
+        monitor.simulateKeyStroke(upgradedStroke)
+
+        // 3. 再等待 0.08 秒（总计 0.18 秒，已超过初始卡片的 0.15 秒过期时间）
+        try await Task.sleep(nanoseconds: 80_000_000) // +0.08s (总共 0.18s)
+
+        // 验证：由于就地升级顺延了超时移除，卡片此时依然存活
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, targetId)
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("K"))
+
+        // 4. 继续等待直至顺延后的超时到达（顺延 0.15s 从 0.1s 开始算，大约在 0.25s 触发，在此等待 0.15s）
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        // 验证：顺延超时生效，卡片最终被正常自动移除
+        XCTAssertEqual(monitor.activeStrokes.count, 0)
+    }
+
+    // MARK: - 动效改进专项测试 4：同一组合连按合并 ×N 计数
+    @MainActor
+    func testRepeatCountMerge() {
+        let monitor = KeyMonitor.shared
+        let settings = AppSettings.shared
+        monitor.clearStroke()
+
+        let originalShowRepeat = settings.showRepeatCount
+        settings.showRepeatCount = true
+        defer {
+            settings.showRepeatCount = originalShowRepeat
+            monitor.clearStroke()
+        }
+
+        let strokeE = KeyStroke(
+            modifiers: [],
+            content: .text("E"),
+            rawIdentifier: "e",
+            isShortcut: false
+        )
+        monitor.simulateKeyStroke(strokeE)
+        let eId = strokeE.id
+
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.repeatCount, 1)
+
+        // 再次连按 E
+        let strokeE2 = KeyStroke(
+            modifiers: [],
+            content: .text("E"),
+            rawIdentifier: "e",
+            isShortcut: false
+        )
+        monitor.simulateKeyStroke(strokeE2)
+
+        // 验证：卡片数依然为 1，repeatCount 变为 2，id 保持不变
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, eId)
+        XCTAssertEqual(monitor.activeStrokes.first?.repeatCount, 2)
+        XCTAssertEqual(monitor.punchCounters[eId], 2)
+
+        // 第三次连按 E
+        let strokeE3 = KeyStroke(
+            modifiers: [],
+            content: .text("E"),
+            rawIdentifier: "e",
+            isShortcut: false
+        )
+        monitor.simulateKeyStroke(strokeE3)
+
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, eId)
+        XCTAssertEqual(monitor.activeStrokes.first?.repeatCount, 3)
+        XCTAssertEqual(monitor.punchCounters[eId], 3)
+    }
+
+    // MARK: - 动效改进专项测试 5：关闭连按合并时按普通追加处理
+    @MainActor
+    func testRepeatCountDisabled() {
+        let monitor = KeyMonitor.shared
+        let settings = AppSettings.shared
+        monitor.clearStroke()
+
+        let originalShowRepeat = settings.showRepeatCount
+        settings.showRepeatCount = false
+        defer {
+            settings.showRepeatCount = originalShowRepeat
+            monitor.clearStroke()
+        }
+
+        let strokeE = KeyStroke(
+            modifiers: [],
+            content: .text("E"),
+            rawIdentifier: "e",
+            isShortcut: false
+        )
+        monitor.simulateKeyStroke(strokeE)
+
+        let strokeE2 = KeyStroke(
+            modifiers: [],
+            content: .text("E"),
+            rawIdentifier: "e",
+            isShortcut: false
+        )
+        monitor.simulateKeyStroke(strokeE2)
+
+        // 验证：关闭后不合并，队列中有 2 张卡
+        XCTAssertEqual(monitor.activeStrokes.count, 2)
+        XCTAssertEqual(monitor.activeStrokes[0].repeatCount, 1)
+        XCTAssertEqual(monitor.activeStrokes[1].repeatCount, 1)
+    }
 }

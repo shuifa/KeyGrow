@@ -11,17 +11,22 @@ public struct KeycapView: View {
     public let style: KeycapStyle
     public let accentColor: SpecialKeyColor
     public let punchTrigger: Int
+    public let repeatCount: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(
         stroke: KeyStroke,
         style: KeycapStyle = .classicDark,
         accentColor: SpecialKeyColor = .blue,
-        punchTrigger: Int = 0
+        punchTrigger: Int = 0,
+        repeatCount: Int = 1
     ) {
         self.stroke = stroke
         self.style = style
         self.accentColor = accentColor
         self.punchTrigger = punchTrigger
+        self.repeatCount = repeatCount
     }
 
     public var body: some View {
@@ -37,13 +42,28 @@ public struct KeycapView: View {
             }
 
             // 主按键展示（若为 Esc、Tab、Return 等特殊功能键，自动赋予特殊键强调色）
-            KeycapItemView(
-                style: style,
-                content: stroke.content,
-                isSpecialKey: stroke.isSpecialFunctionKey,
-                accentColor: accentColor
-            )
+            HStack(spacing: 2) {
+                KeycapItemView(
+                    style: style,
+                    content: stroke.content,
+                    isSpecialKey: stroke.isSpecialFunctionKey,
+                    accentColor: accentColor
+                )
+
+                // 连按次数徽标（×2, ×3 等）
+                if repeatCount > 1 {
+                    Text("×\(repeatCount)")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .transition(.opacity)
+                }
+            }
+            .contentTransition(.numericText())
         }
+        .animation(
+            reduceMotion ? .easeInOut(duration: 0.18) : .spring(duration: 0.28, bounce: 0.24),
+            value: stroke.modifiers
+        )
         .padding(4)
         // 连按冲击振颤（Tap Punch/Pulse Spring）使用 macOS 14 原生 phaseAnimator
         .phaseAnimator([false, true, false], trigger: punchTrigger) { content, isPunched in

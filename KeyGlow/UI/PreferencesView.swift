@@ -341,6 +341,15 @@ public struct PreferencesView: View {
                 }
                 Slider(value: $settings.displayDuration, in: 0.5...3.0, step: 0.1)
             }
+
+            Divider()
+
+            // 连按合并开关
+            Toggle(isOn: $settings.showRepeatCount) {
+                Label("显示连按次数", systemImage: "repeat")
+                    .font(.subheadline)
+            }
+            .toggleStyle(.switch)
         }
         .padding(16)
         .background(

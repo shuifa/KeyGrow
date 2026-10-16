@@ -20,8 +20,20 @@ public final class KeyMonitor: ObservableObject {
     /// 最新按下的按键（兼容性快捷访问）
     public var currentStroke: KeyStroke? { activeStrokes.last }
 
-    /// 动效触发计数器（每次按键递增，用于驱动 Spring 冲击振颤）
-    @Published public private(set) var punchTrigger: Int = 0
+    /// 每个键帽独立的连按冲击计数（按 stroke.id 记录，保证只有「刚要按下/就地升级」的那张卡片振颤）
+    @Published public private(set) var punchCounters: [UUID: Int] = [:]
+
+    /// 每个键帽专属的一次性超时移除任务（按 id 索引，就地升级/连按时先取消再重新计时，避免提前移除）
+    private var removalTasks: [UUID: Task<Void, Never>] = [:]
+
+    /// 队列重排动画：存活卡片平移到新位置
+    private var queueReorderAnimation: Animation {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            return .easeInOut(duration: 0.18)
+        } else {
+            return .spring(duration: 0.30, bounce: 0.26)
+        }
+    }
 
     /// 是否正在监听中
     @Published public private(set) var isMonitoring: Bool = false
@@ -61,14 +73,18 @@ public final class KeyMonitor: ObservableObject {
         worker?.stop()
         worker = nil
         isMonitoring = false
-        activeStrokes.removeAll()
-        isCurrentStrokeActiveModifier = false
+        clearStroke()
     }
 
     /// 清空当前按键展示
     public func clearStroke() {
-        activeStrokes.removeAll()
+        removalTasks.values.forEach { $0.cancel() }
+        removalTasks.removeAll()
+        punchCounters.removeAll()
         isCurrentStrokeActiveModifier = false
+        withAnimation(queueReorderAnimation) {
+            activeStrokes.removeAll()
+        }
     }
 
     /// 模拟按键（用于偏好设置预览及测试）
@@ -93,32 +109,80 @@ public final class KeyMonitor: ObservableObject {
     private func didReceiveKeyStroke(_ newStroke: KeyStroke) {
         guard AppSettings.shared.isEnabled else { return }
 
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.72)) {
+        var target: KeyStroke = newStroke
+
+        withAnimation(self.queueReorderAnimation) {
             if self.isCurrentStrokeActiveModifier,
                let last = self.activeStrokes.last,
                last.isModifierOnly,
                (newStroke.isModifierOnly || !newStroke.modifiers.isEmpty) {
-                // 就地升级替换最后一个未松开的修饰键（避免修饰键组合或紧随的快捷键出现多余卡片）
-                self.activeStrokes[self.activeStrokes.count - 1] = newStroke
+                // 就地升级替换最后一个未松开的修饰键（复用原 id，保证卡片就地生长而非交叉淡换）
+                let upgraded = KeyStroke(
+                    id: last.id,
+                    modifiers: newStroke.modifiers,
+                    content: newStroke.content,
+                    rawIdentifier: newStroke.rawIdentifier,
+                    isShortcut: newStroke.isShortcut,
+                    isSpecialFunctionKey: newStroke.isSpecialFunctionKey,
+                    isModifierOnly: newStroke.isModifierOnly,
+                    timestamp: newStroke.timestamp,
+                    repeatCount: newStroke.repeatCount
+                )
+                self.activeStrokes[self.activeStrokes.count - 1] = upgraded
+                target = upgraded
+            } else if AppSettings.shared.showRepeatCount,
+                      let last = self.activeStrokes.last,
+                      last.rawIdentifier == newStroke.rawIdentifier {
+                // 连按合并（showRepeatCount 开启且标识一致时递增次数，同一卡片原位更新）
+                self.activeStrokes[self.activeStrokes.count - 1].repeatCount &+= 1
+                target = self.activeStrokes[self.activeStrokes.count - 1]
             } else {
-                // 连续按键队列最多保留 3 个，若已满 3 个则移除最左侧最早按下的一个
+                // 普通追加（连续按键队列最多保留 3 个，溢出时移除最左侧最早按下的元素）
                 if self.activeStrokes.count >= 3 {
-                    self.activeStrokes.removeFirst()
+                    let removed = self.activeStrokes.removeFirst()
+                    self.removalTasks[removed.id]?.cancel()
+                    self.removalTasks.removeValue(forKey: removed.id)
+                    self.punchCounters.removeValue(forKey: removed.id)
                 }
                 self.activeStrokes.append(newStroke)
+                target = newStroke
             }
         }
-        self.punchTrigger &+= 1
+
+        // 仅对目标卡递增冲击计数，保证只有目标卡自身发生振颤
+        self.punchCounters[target.id, default: 0] &+= 1
         self.isCurrentStrokeActiveModifier = newStroke.isModifierOnly
 
-        // 为该按键调度专属的超时自动移除
-        let strokeId = newStroke.id
-        let duration = AppSettings.shared.displayDuration
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-            withAnimation(.easeInOut(duration: 0.24)) {
-                self?.activeStrokes.removeAll(where: { $0.id == strokeId })
+        // 为该按键重新调度超时自动移除（就地升级与连按时顺延超时计时）
+        self.scheduleRemoval(for: target.id, duration: AppSettings.shared.displayDuration)
+    }
+
+    private func scheduleRemoval(for strokeId: UUID, duration: Double) {
+        // 先取消旧任务，避免提前触发移除（支持顺延）
+        removalTasks[strokeId]?.cancel()
+
+        removalTasks[strokeId] = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            } catch {
+                return
             }
+
+            guard !Task.isCancelled, let self = self else { return }
+
+            // 二次校验队列中仍包含该卡片
+            guard self.activeStrokes.contains(where: { $0.id == strokeId }) else {
+                self.removalTasks.removeValue(forKey: strokeId)
+                self.punchCounters.removeValue(forKey: strokeId)
+                return
+            }
+
+            withAnimation(self.queueReorderAnimation) {
+                self.activeStrokes.removeAll(where: { $0.id == strokeId })
+            }
+
+            self.removalTasks.removeValue(forKey: strokeId)
+            self.punchCounters.removeValue(forKey: strokeId)
         }
     }
 }

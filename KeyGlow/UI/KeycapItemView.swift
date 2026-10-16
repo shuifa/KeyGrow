@@ -32,6 +32,7 @@ public struct KeycapItemView: View {
 
     public var body: some View {
         innerContent
+            .contentTransition(.numericText())
             .frame(minWidth: minWidth, minHeight: height)
             .padding(.horizontal, 10)
             .background(backgroundLayer)
