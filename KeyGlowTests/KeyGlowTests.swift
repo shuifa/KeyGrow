@@ -495,4 +495,40 @@ final class KeyGlowTests: XCTestCase {
         XCTAssertEqual(monitor.activeStrokes[0].repeatCount, 1)
         XCTAssertEqual(monitor.activeStrokes[1].repeatCount, 1)
     }
+
+    // MARK: - 连按数量显示全新设计专项测试：多风格多配色初始化与角标结构
+    func testKeyRepeatBadgeViewInitializationAndStyles() {
+        // 遍历所有键帽质感风格与强调色，确保角标各组合均能正确实例化
+        for style in KeycapStyle.allCases {
+            for color in SpecialKeyColor.allCases {
+                let badge = KeyRepeatBadgeView(count: 2, style: style, accentColor: color)
+                XCTAssertEqual(badge.count, 2)
+                XCTAssertEqual(badge.style, style)
+                XCTAssertEqual(badge.accentColor, color)
+            }
+        }
+    }
+
+    func testKeycapViewWithRepeatCount() {
+        let stroke = KeyStroke(
+            modifiers: [.command],
+            content: .text("C"),
+            rawIdentifier: "cmd+c",
+            isShortcut: true,
+            repeatCount: 4
+        )
+
+        let view = KeycapView(
+            stroke: stroke,
+            style: .classicDark,
+            accentColor: .blue,
+            punchTrigger: 2,
+            repeatCount: 4
+        )
+
+        XCTAssertEqual(view.repeatCount, 4)
+        XCTAssertEqual(view.punchTrigger, 2)
+        XCTAssertEqual(view.style, .classicDark)
+        XCTAssertEqual(view.accentColor, .blue)
+    }
 }

@@ -162,7 +162,8 @@ public struct PreferencesView: View {
                     stroke: previewStroke,
                     style: settings.keycapStyle,
                     accentColor: settings.specialKeyColor,
-                    punchTrigger: 0
+                    punchTrigger: 0,
+                    repeatCount: settings.showRepeatCount ? 2 : 1
                 )
                 .scaleEffect(0.9)
             }
@@ -407,6 +408,14 @@ public struct PreferencesView: View {
                 Spacer()
 
                 Button {
+                    simulateRepeatSequence()
+                } label: {
+                    Label("连按 ×3 演示", systemImage: "repeat")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button {
                     simulateSequence()
                 } label: {
                     Label("自动 3 连击", systemImage: "play.fill")
@@ -432,6 +441,16 @@ public struct PreferencesView: View {
             timestamp: Date()
         )
         KeyMonitor.shared.simulateKeyStroke(stroke)
+    }
+
+    private func simulateRepeatSequence() {
+        simulateSingle("⌘ C", modifiers: [.command], text: "C")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            simulateSingle("⌘ C", modifiers: [.command], text: "C")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.44) {
+            simulateSingle("⌘ C", modifiers: [.command], text: "C")
+        }
     }
 
     private func simulateSequence() {
