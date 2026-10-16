@@ -3,6 +3,7 @@
 //  KeyGlow
 //
 
+import Carbon
 import CoreGraphics
 import Foundation
 
@@ -17,12 +18,28 @@ public struct KeyCodeMapper {
 
     /// 根据按键事件和键码解析键帽内容
     public static func map(event: CGEvent, keyCode: CGKeyCode) -> KeyInfo {
-        // 1. 优先匹配系统特殊按键（方向键、功能键、编辑键）
+        // 1. 优先匹配系统特殊按键（方向键、功能键、编辑键、修饰键）
         if let special = specialKeyMap[keyCode] {
             return special
         }
 
-        // 2. 尝试从 CGEvent 读取真实的 Unicode 字符（自动适配当前输入法键盘布局）
+        let flags = event.flags
+        let isShortcutModifierActive = flags.contains(.maskControl) || flags.contains(.maskAlternate) || flags.contains(.maskCommand)
+
+        // 2. 若当前按下修饰键（Control / Option / Command），说明处于快捷键组合中，
+        // 优先通过 Carbon TIS 解析其物理/ASCII 基础字符（避免 Control 产生控制字符或 Option 产生死键/变音符），
+        // 从而正确展示如 ⌃C、⌥A、⌥E 等快捷键，而非 Key_0 或 Key_14。
+        if isShortcutModifierActive {
+            if let display = translateWithCarbonTIS(keyCode: keyCode) ?? ansiKeyMap[keyCode] {
+                return KeyInfo(
+                    content: .text(display),
+                    isSpecialFunctionKey: false,
+                    identifier: display.lowercased()
+                )
+            }
+        }
+
+        // 3. 尝试从 CGEvent 读取真实的 Unicode 字符（适合正常打字、输入法输入与 Shift 大写输入）
         var length: Int = 0
         event.keyboardGetUnicodeString(maxStringLength: 0, actualStringLength: &length, unicodeString: nil)
 
@@ -43,7 +60,16 @@ public struct KeyCodeMapper {
             }
         }
 
-        // 3. Fallback 到通用键码描述
+        // 4. 若 CGEvent 未能解析出有效字符（如死键、未捕获的修饰组合等），使用 Carbon TIS 与 ANSI 表补救
+        if let display = translateWithCarbonTIS(keyCode: keyCode) ?? ansiKeyMap[keyCode] {
+            return KeyInfo(
+                content: .text(display),
+                isSpecialFunctionKey: false,
+                identifier: display.lowercased()
+            )
+        }
+
+        // 5. 最终 Fallback 到通用键码描述
         let fallback = "Key_\(keyCode)"
         return KeyInfo(
             content: .text(fallback),
@@ -51,6 +77,75 @@ public struct KeyCodeMapper {
             identifier: fallback.lowercased()
         )
     }
+
+    /// 使用 Carbon TIS 键盘布局将虚拟键码转换为基础字符（无修饰、无死键状态）
+    private static func translateWithCarbonTIS(keyCode: CGKeyCode) -> String? {
+        // 优先使用当前支持 ASCII 的键盘布局（例如在拼音或非拉丁输入法下获取对应的英文键盘布局，避免标点符号变成全角符号）
+        guard let inputSource = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() ??
+                                TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else {
+            return nil
+        }
+
+        guard let layoutDataPtr = TISGetInputSourceProperty(inputSource, kTISPropertyUnicodeKeyLayoutData) else {
+            return nil
+        }
+
+        let layoutData = unsafeBitCast(layoutDataPtr, to: CFData.self)
+        guard let layout = CFDataGetBytePtr(layoutData) else {
+            return nil
+        }
+
+        var deadKeyState: UInt32 = 0
+        var length: Int = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+
+        let result = layout.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { layoutPtr in
+            UCKeyTranslate(
+                layoutPtr,
+                UInt16(keyCode),
+                UInt16(kUCKeyActionDisplay),
+                0, // 无修饰键状态，提取基础按键字符
+                UInt32(LMGetKbdType()),
+                OptionBits(kUCKeyTranslateNoDeadKeysBit), // 忽略死键状态
+                &deadKeyState,
+                4,
+                &length,
+                &chars
+            )
+        }
+
+        if result == noErr && length > 0 {
+            let str = String(utf16CodeUnits: chars, count: length).trimmingCharacters(in: .controlCharacters)
+            if !str.isEmpty {
+                return str.uppercased()
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - 标准 ANSI 虚拟键码备用映射表 (兜底保证无 TIS 布局时仍能正确解析)
+
+    private static let ansiKeyMap: [CGKeyCode: String] = [
+        // 字母按键 A ~ Z
+        0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
+        8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
+        16: "Y", 17: "T", 31: "O", 32: "U", 34: "I", 35: "P", 37: "L",
+        38: "J", 40: "K", 45: "N", 46: "M",
+
+        // 数字按键 0 ~ 9
+        18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7",
+        28: "8", 25: "9", 29: "0",
+
+        // 标点符号
+        27: "-", 24: "=", 33: "[", 30: "]", 42: "\\", 41: ";", 39: "'",
+        43: ",", 47: ".", 44: "/", 50: "`",
+
+        // 小键盘按键
+        65: ".", 67: "*", 69: "+", 75: "/", 78: "-", 81: "=",
+        82: "0", 83: "1", 84: "2", 85: "3", 86: "4", 87: "5",
+        88: "6", 89: "7", 91: "8", 92: "9"
+    ]
 
     // MARK: - 特殊键映射表 (Virtual Keycodes)
 

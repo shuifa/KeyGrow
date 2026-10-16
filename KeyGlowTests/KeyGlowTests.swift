@@ -531,4 +531,113 @@ final class KeyGlowTests: XCTestCase {
         XCTAssertEqual(view.style, .classicDark)
         XCTAssertEqual(view.accentColor, .blue)
     }
+
+    // MARK: - Ctrl / Option 与字母按键显示修复测试（彻底避免显示为 Key_数字）
+
+    func testCtrlWithLetterKeysMapping() {
+        // 测试常见字母按键 A(0), C(8), E(14), Z(6)
+        let testCases: [(name: String, code: CGKeyCode, asciiCtrl: UniChar)] = [
+            ("A", 0, 1),
+            ("C", 8, 3),
+            ("E", 14, 5),
+            ("Z", 6, 26)
+        ]
+
+        for tc in testCases {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: tc.code, keyDown: true) else {
+                XCTFail("无法创建测试 CGEvent: \(tc.name)")
+                continue
+            }
+            event.flags = .maskControl
+
+            // 模拟 macOS 真实场景：当按下 Control 时，keyboardGetUnicodeString 返回控制字符 (ASCII 1~26)
+            var ctrlChar = tc.asciiCtrl
+            event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &ctrlChar)
+
+            let info = KeyCodeMapper.map(event: event, keyCode: tc.code)
+
+            XCTAssertEqual(info.content, .text(tc.name), "Ctrl + \(tc.name) 应当展示为 \(tc.name)")
+            XCTAssertEqual(info.identifier, tc.name.lowercased())
+            XCTAssertFalse(info.isSpecialFunctionKey)
+            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"), "不应显示为 Key_\(tc.code)")
+        }
+    }
+
+    func testOptionWithLetterKeysMapping() {
+        // 测试常见字母按键与 Option 组合（含 dead key 变音死键：E(14), U(32), N(45)）
+        let testCases: [(name: String, code: CGKeyCode, isDeadKey: Bool)] = [
+            ("A", 0, false),
+            ("C", 8, false),
+            ("E", 14, true),  // dead key: acute
+            ("U", 32, true),  // dead key: umlaut
+            ("N", 45, true)   // dead key: tilde
+        ]
+
+        for tc in testCases {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: tc.code, keyDown: true) else {
+                XCTFail("无法创建测试 CGEvent: \(tc.name)")
+                continue
+            }
+            event.flags = .maskAlternate
+
+            if tc.isDeadKey {
+                // 模拟 macOS 真实场景：对于变音死键，keyboardGetUnicodeString 长度为 0
+                var empty = [UniChar]()
+                event.keyboardSetUnicodeString(stringLength: 0, unicodeString: &empty)
+            }
+
+            let info = KeyCodeMapper.map(event: event, keyCode: tc.code)
+
+            XCTAssertEqual(info.content, .text(tc.name), "Option + \(tc.name) 应当展示为 \(tc.name)")
+            XCTAssertEqual(info.identifier, tc.name.lowercased())
+            XCTAssertFalse(info.isSpecialFunctionKey)
+            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"), "不应显示为 Key_\(tc.code)")
+        }
+    }
+
+    func testCtrlAndOptionCombinationsWithKeys() {
+        // 测试 Ctrl + Option 复合修饰组合
+        for (name, code) in [("A", CGKeyCode(0)), ("C", CGKeyCode(8)), ("E", CGKeyCode(14))] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else {
+                XCTFail("无法创建测试 CGEvent: \(name)")
+                continue
+            }
+            event.flags = [.maskControl, .maskAlternate]
+
+            let info = KeyCodeMapper.map(event: event, keyCode: code)
+            XCTAssertEqual(info.content, .text(name), "Ctrl + Option + \(name) 应当解析为 \(name)")
+            XCTAssertEqual(info.identifier, name.lowercased())
+            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
+        }
+
+        // 测试 Command + Option 复合修饰组合
+        for (name, code) in [("C", CGKeyCode(8)), ("L", CGKeyCode(37))] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else {
+                XCTFail("无法创建测试 CGEvent: \(name)")
+                continue
+            }
+            event.flags = [.maskCommand, .maskAlternate]
+
+            let info = KeyCodeMapper.map(event: event, keyCode: code)
+            XCTAssertEqual(info.content, .text(name), "Cmd + Option + \(name) 应当解析为 \(name)")
+            XCTAssertEqual(info.identifier, name.lowercased())
+            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
+        }
+    }
+
+    func testNumericAndPunctuationWithModifiers() {
+        // 测试数字键 1(18) 与符号键 [(33), /(44) 在带修饰键时正确解析为物理/基础字符
+        for (expected, code) in [("1", CGKeyCode(18)), ("[", CGKeyCode(33)), ("/", CGKeyCode(44))] {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else {
+                XCTFail("无法创建测试 CGEvent: \(expected)")
+                continue
+            }
+            event.flags = .maskControl
+
+            let info = KeyCodeMapper.map(event: event, keyCode: code)
+            XCTAssertEqual(info.content, .text(expected), "修饰键 + \(expected) 应当解析为 \(expected)")
+            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
+        }
+    }
 }
+
