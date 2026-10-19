@@ -69,7 +69,7 @@
 
 直接前往 **[GitHub Releases](https://github.com/shuifa/KeyGrow/releases)** 下载最新版本的 `.dmg` 安装包：
 
-1. 下载 `KeyGlow-v0.9.dmg`。
+1. 下载 `KeyGlow-v0.10.dmg`。
 2. 双击打开并将 **KeyGlow.app** 拖入 **Applications（应用程序）** 目录。
 3. 启动应用并按提示授予辅助功能权限即可开始使用。
 
