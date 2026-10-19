@@ -62,9 +62,9 @@ public enum BorderColorOption: String, CaseIterable, Identifiable, Codable, Send
         case .matching:
             return LinearGradient(
                 colors: [
-                    Color.white.opacity(0.55),
-                    baseKeyColor.color.opacity(0.40),
-                    baseKeyColor.extrusionBaseColor.opacity(0.60)
+                    Color.white.opacity(0.68),
+                    baseKeyColor.color.opacity(0.55),
+                    baseKeyColor.extrusionBaseColor.opacity(0.65)
                 ],
                 startPoint: .top,
                 endPoint: .bottom

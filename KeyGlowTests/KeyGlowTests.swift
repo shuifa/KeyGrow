@@ -533,13 +533,13 @@ final class KeyGlowTests: XCTestCase {
 
     // MARK: - 连按数量显示全新设计专项测试：多风格多配色初始化与角标结构
     func testKeyRepeatBadgeViewInitializationAndStyles() {
-        // 遍历所有键帽质感风格与强调色，确保角标各组合均能正确实例化
+        // 遍历所有键帽质感风格与配色，确保角标各组合均能正确实例化
         for style in KeycapStyle.allCases {
-            for color in SpecialKeyColor.allCases {
-                let badge = KeyRepeatBadgeView(count: 2, style: style, accentColor: color)
+            for color in KeyColorOption.allCases {
+                let badge = KeyRepeatBadgeView(count: 2, style: style, keyColor: color, borderColor: .matching)
                 XCTAssertEqual(badge.count, 2)
                 XCTAssertEqual(badge.style, style)
-                XCTAssertEqual(badge.accentColor, color)
+                XCTAssertEqual(badge.keyColor, color)
             }
         }
     }
@@ -781,8 +781,8 @@ final class KeyGlowTests: XCTestCase {
     // MARK: - 需求 1 专项测试：Keystroke Pro 独立配色与实体拟物选项测试
     @MainActor
     func testKeyColorOptionsAndSkeuomorphProperties() {
-        // 1. 验证 KeyColorOption 覆盖 10 种经典配色
-        XCTAssertEqual(KeyColorOption.allCases.count, 10)
+        // 1. 验证 KeyColorOption 覆盖 12 种配色（10 种经典色 + 2 种明亮补充色）
+        XCTAssertEqual(KeyColorOption.allCases.count, 12)
         XCTAssertEqual(KeyColorOption.beige1984.title, "1984s Beige")
         XCTAssertEqual(KeyColorOption.azureBlue.title, "Azure Blue")
         XCTAssertEqual(KeyColorOption.mambaGreen.title, "Mamba Green")
@@ -793,6 +793,8 @@ final class KeyGlowTests: XCTestCase {
         XCTAssertEqual(KeyColorOption.crimsonRed.title, "Crimson Red")
         XCTAssertEqual(KeyColorOption.pureWhite.title, "Pure White")
         XCTAssertEqual(KeyColorOption.matteCharcoal.title, "Matte Charcoal")
+        XCTAssertEqual(KeyColorOption.aquaTeal.title, "Aqua Teal")
+        XCTAssertEqual(KeyColorOption.goldenAmber.title, "Golden Amber")
 
         // 2. 验证每种配色均提供物理厚度底座色彩与顶面物理渐变
         for opt in KeyColorOption.allCases {
@@ -812,14 +814,126 @@ final class KeyGlowTests: XCTestCase {
         XCTAssertEqual(BorderColorOption.neonCyan.title, "Neon Cyan")
         XCTAssertEqual(BorderColorOption.minimal.title, "Minimal")
 
-        // 4. 验证 AppSettings 的默认配置（符合用户给出的 Keystroke Pro 初始设定）
+        // 4. 验证出厂默认配置（不读取用户已持久化的偏好，避免与本机历史设置耦合）
+        XCTAssertEqual(AppSettings.Defaults.displayMode, .allKeys, "默认触发模式必须为全按键模式，保证打字可见")
+        XCTAssertEqual(AppSettings.Defaults.keyColor, .beige1984, "默认 Key Color 必须为 1984s Beige")
+        XCTAssertEqual(AppSettings.Defaults.modifierColor, .azureBlue, "默认 Modifier Color 必须为 Azure Blue")
+        XCTAssertEqual(AppSettings.Defaults.escapeColor, .mambaGreen, "默认 Escape Color 必须为 Mamba Green")
+        XCTAssertEqual(AppSettings.Defaults.borderColor, .matching, "默认 Border Color 必须为自适应匹配，避免统一深色描边压暗键帽")
+        XCTAssertEqual(AppSettings.Defaults.keyOpacity, 1.0, "默认 Opacity 必须为 100%")
+    }
+
+    // MARK: - 新色系专项测试 1：明亮色系不得回退为暗色，字符对比度必须达标
+    func testNewPaletteBrightnessAndLegendContrast() {
+        for opt in KeyColorOption.allCases {
+            // 除刻意的深空/炭黑中性色外，其余键帽受光面亮度必须处于明亮区间（避免整体偏暗）
+            if opt != .space && opt != .matteCharcoal {
+                XCTAssertGreaterThanOrEqual(
+                    opt.palette.top.relativeLuminance, 0.24,
+                    "\(opt.title) 受光面亮度不足，色系重新变暗"
+                )
+            }
+
+            // 字符与键帽中间调的 WCAG 对比度不得低于 3.0（大号粗体字符的最低可读阈值）
+            XCTAssertGreaterThanOrEqual(
+                opt.legendContrastRatio, 3.0,
+                "\(opt.title) 字符与键帽对比度过低，录屏时不可读"
+            )
+
+            // 浅色键帽使用深墨字符，深色键帽使用白色字符
+            if opt.isLightSurface {
+                XCTAssertGreaterThan(
+                    opt.palette.midTone.contrastRatio(with: .ink),
+                    opt.palette.midTone.contrastRatio(with: .white),
+                    "\(opt.title) 属于浅色键帽，应使用深墨色字符"
+                )
+            }
+        }
+    }
+
+    // MARK: - 新色系专项测试 2：按键配色角色解析（角标与键帽必须同源）
+    @MainActor
+    func testKeyColorRoleResolution() {
+        // 普通组合快捷键 → 常规键配色
+        let regular = KeyStroke(
+            modifiers: [.command],
+            content: .text("C"),
+            rawIdentifier: "command+c",
+            isShortcut: true
+        )
+        XCTAssertEqual(regular.colorRole, .regular)
+
+        // 单独修饰键 → 修饰键配色
+        let modifier = KeyStroke(
+            modifiers: [],
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            rawIdentifier: "command",
+            isShortcut: true,
+            isSpecialFunctionKey: true,
+            isModifierOnly: true
+        )
+        XCTAssertEqual(modifier.colorRole, .modifier)
+
+        // Esc → Esc 配色
+        let escape = KeyStroke(
+            modifiers: [],
+            content: .symbol(name: "escape", fallbackText: "Esc"),
+            rawIdentifier: "esc",
+            isShortcut: true,
+            isSpecialFunctionKey: true
+        )
+        XCTAssertEqual(escape.colorRole, .escape)
+
+        // Return / Tab 等功能键 → Esc 配色（特殊键组）
+        let returnKey = KeyStroke(
+            modifiers: [],
+            content: .symbol(name: "return", fallbackText: "Return"),
+            rawIdentifier: "return",
+            isShortcut: true,
+            isSpecialFunctionKey: true
+        )
+        XCTAssertEqual(returnKey.colorRole, .special)
+
+        // AppSettings 角色映射必须与三档配色设置一一对应
         let settings = AppSettings.shared
-        XCTAssertEqual(settings.displayMode, .allKeys, "默认触发模式必须为全按键模式，保证打字可见")
-        XCTAssertEqual(settings.keyColor, .beige1984, "默认 Key Color 必须为 1984s Beige")
-        XCTAssertEqual(settings.modifierColor, .azureBlue, "默认 Modifier Color 必须为 Azure Blue")
-        XCTAssertEqual(settings.escapeColor, .mambaGreen, "默认 Escape Color 必须为 Mamba Green")
-        XCTAssertEqual(settings.borderColor, .space, "默认 Border Color 必须为 Space")
-        XCTAssertEqual(settings.keyOpacity, 1.0, "默认 Opacity 必须为 100%")
+        XCTAssertEqual(settings.keyColor(for: .regular), settings.keyColor)
+        XCTAssertEqual(settings.keyColor(for: .modifier), settings.modifierColor)
+        XCTAssertEqual(settings.keyColor(for: .escape), settings.escapeColor)
+        XCTAssertEqual(settings.keyColor(for: .special), settings.escapeColor)
+    }
+
+    // MARK: - 新色系专项测试 3：连按角标与主键帽取同一色号（修复数字颜色不匹配）
+    @MainActor
+    func testRepeatBadgeUsesSameKeyColorAsKeycap() {
+        let settings = AppSettings.shared
+        let originalKeyColor = settings.keyColor
+        defer { settings.keyColor = originalKeyColor }
+
+        // 常规字母键连按：主键帽与角标必须同时使用 Key Color
+        settings.keyColor = .goldenAmber
+        let regularStroke = KeyStroke(modifiers: [], content: .text("A"), rawIdentifier: "a")
+        XCTAssertEqual(regularStroke.colorRole, .regular)
+        XCTAssertEqual(settings.keyColor(for: regularStroke.colorRole), .goldenAmber)
+
+        // 修饰键连按：主键帽与角标必须同时使用 Modifier Color
+        let modifierStroke = KeyStroke(
+            modifiers: [],
+            content: .symbol(name: "option", fallbackText: "⌥"),
+            rawIdentifier: "option",
+            isShortcut: true,
+            isSpecialFunctionKey: true,
+            isModifierOnly: true
+        )
+        XCTAssertEqual(settings.keyColor(for: modifierStroke.colorRole), settings.modifierColor)
+
+        // 渲染层校验：连按角标的前景色必须等于键帽前景色（数字颜色与键帽字符颜色完全一致）
+        let badge = KeyRepeatBadgeView(count: 3, style: .classicDark, keyColor: .goldenAmber, borderColor: .matching)
+        XCTAssertEqual(badge.keyColor.foregroundColor, KeyColorOption.goldenAmber.foregroundColor)
+        XCTAssertNotEqual(
+            badge.keyColor.foregroundColor,
+            KeyColorOption.azureBlue.foregroundColor,
+            "角标不应再使用固定的全局强调色"
+        )
     }
 }
 

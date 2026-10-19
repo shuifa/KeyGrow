@@ -97,33 +97,52 @@ public final class AppSettings: ObservableObject {
     /// 辅助功能权限状态
     @Published public var isAccessibilityGranted: Bool = false
 
+    // MARK: - 出厂默认值
+
+    /// 出厂默认配置（集中定义，避免初始化分支散落魔法值，也便于测试校验）
+    public enum Defaults {
+        public static let isEnabled = true
+        public static let displayMode: DisplayMode = .allKeys
+        public static let keycapStyle: KeycapStyle = .classicDark
+        public static let anchor: DisplayAnchor = .bottomCenter
+        public static let keyColor: KeyColorOption = .beige1984
+        public static let modifierColor: KeyColorOption = .azureBlue
+        public static let escapeColor: KeyColorOption = .mambaGreen
+        public static let borderColor: BorderColorOption = .matching
+        public static let keyOpacity: Double = 1.0
+        public static let displayDuration: Double = 1.5
+        public static let verticalOffset: Double = 70.0
+        public static let sizeScale: Double = 1.0
+        public static let showRepeatCount = true
+    }
+
     // MARK: - Initialization
 
     private init() {
         let defaults = UserDefaults.standard
 
-        self.isEnabled = defaults.object(forKey: Keys.isEnabled) != nil ? defaults.bool(forKey: Keys.isEnabled) : true
+        self.isEnabled = defaults.object(forKey: Keys.isEnabled) != nil ? defaults.bool(forKey: Keys.isEnabled) : Defaults.isEnabled
 
         if let modeRaw = defaults.string(forKey: Keys.displayMode),
            let mode = DisplayMode(rawValue: modeRaw) {
             self.displayMode = mode
         } else {
             // 默认采用全按键模式，确保打字及单字母输入直接可见且不漏键
-            self.displayMode = .allKeys
+            self.displayMode = Defaults.displayMode
         }
 
         if let styleRaw = defaults.string(forKey: Keys.keycapStyle),
            let style = KeycapStyle(rawValue: styleRaw) {
             self.keycapStyle = style
         } else {
-            self.keycapStyle = .classicDark
+            self.keycapStyle = Defaults.keycapStyle
         }
 
         if let anchorRaw = defaults.string(forKey: Keys.anchor),
            let anchor = DisplayAnchor(rawValue: anchorRaw) {
             self.anchor = anchor
         } else {
-            self.anchor = .bottomCenter
+            self.anchor = Defaults.anchor
         }
 
         if let colorRaw = defaults.string(forKey: Keys.specialKeyColor),
@@ -138,7 +157,7 @@ public final class AppSettings: ObservableObject {
            let opt = KeyColorOption(rawValue: keyColorRaw) {
             self.keyColor = opt
         } else {
-            self.keyColor = .beige1984
+            self.keyColor = Defaults.keyColor
         }
 
         // 初始化 Modifier Color（默认 Azure Blue）
@@ -146,7 +165,7 @@ public final class AppSettings: ObservableObject {
            let opt = KeyColorOption(rawValue: modColorRaw) {
             self.modifierColor = opt
         } else {
-            self.modifierColor = .azureBlue
+            self.modifierColor = Defaults.modifierColor
         }
 
         // 初始化 Escape Color（默认 Mamba Green）
@@ -154,31 +173,31 @@ public final class AppSettings: ObservableObject {
            let opt = KeyColorOption(rawValue: escColorRaw) {
             self.escapeColor = opt
         } else {
-            self.escapeColor = .mambaGreen
+            self.escapeColor = Defaults.escapeColor
         }
 
-        // 初始化 Border Color（默认 Space）
+        // 初始化 Border Color（默认 Auto Matching：随键帽自适应微光，避免统一深色描边把键帽压暗）
         if let borderRaw = defaults.string(forKey: Keys.borderColor),
            let opt = BorderColorOption(rawValue: borderRaw) {
             self.borderColor = opt
         } else {
-            self.borderColor = .space
+            self.borderColor = Defaults.borderColor
         }
 
         // 初始化 Key Opacity（默认 1.0）
         let opacityVal = defaults.double(forKey: Keys.keyOpacity)
-        self.keyOpacity = opacityVal > 0 ? opacityVal : 1.0
+        self.keyOpacity = opacityVal > 0 ? opacityVal : Defaults.keyOpacity
 
         let duration = defaults.double(forKey: Keys.displayDuration)
-        self.displayDuration = duration > 0 ? duration : 1.5
+        self.displayDuration = duration > 0 ? duration : Defaults.displayDuration
 
         let vOffset = defaults.double(forKey: Keys.verticalOffset)
-        self.verticalOffset = vOffset > 0 ? vOffset : 70.0
+        self.verticalOffset = vOffset > 0 ? vOffset : Defaults.verticalOffset
 
         let scale = defaults.double(forKey: Keys.sizeScale)
-        self.sizeScale = scale > 0 ? scale : 1.0
+        self.sizeScale = scale > 0 ? scale : Defaults.sizeScale
 
-        self.showRepeatCount = defaults.object(forKey: Keys.showRepeatCount) != nil ? defaults.bool(forKey: Keys.showRepeatCount) : true
+        self.showRepeatCount = defaults.object(forKey: Keys.showRepeatCount) != nil ? defaults.bool(forKey: Keys.showRepeatCount) : Defaults.showRepeatCount
 
         checkAccessibility()
     }

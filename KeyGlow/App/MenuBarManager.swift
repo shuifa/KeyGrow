@@ -81,18 +81,14 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
         modeSubmenuItem.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
         menu.addItem(modeSubmenuItem)
 
-        // 4. 特殊按键强调配色切换（Keystroke Pro 经典体验）
+        // 4. 按键配色（按角色独立设定，与偏好设置中的 Key / Modifier / Escape Color 完全一致）
         let colorMenu = NSMenu()
-        for color in SpecialKeyColor.allCases {
-            let item = NSMenuItem(title: color.title, action: #selector(selectSpecialKeyColor(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = color
-            item.state = settings.specialKeyColor == color ? .on : .off
-            colorMenu.addItem(item)
-        }
+        colorMenu.addItem(makeKeyColorSubmenu(title: "常规键", role: .regular, current: settings.keyColor))
+        colorMenu.addItem(makeKeyColorSubmenu(title: "修饰键", role: .modifier, current: settings.modifierColor))
+        colorMenu.addItem(makeKeyColorSubmenu(title: "Esc 键", role: .escape, current: settings.escapeColor))
         let colorSubmenuItem = NSMenuItem(title: "按键配色", action: nil, keyEquivalent: "")
         colorSubmenuItem.submenu = colorMenu
-        colorSubmenuItem.image = NSImage(systemSymbolName: "circle.circle", accessibilityDescription: nil)
+        colorSubmenuItem.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: nil)
         menu.addItem(colorSubmenuItem)
 
         // 5. 视觉主题风格切换
@@ -149,6 +145,26 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
 
     // MARK: - Actions
 
+    /// 构造某类按键的配色子菜单（常规键 / 修饰键 / Esc 键）
+    private func makeKeyColorSubmenu(title: String, role: KeyColorRole, current: KeyColorOption) -> NSMenuItem {
+        let submenu = NSMenu()
+        for option in KeyColorOption.allCases {
+            let item = NSMenuItem(
+                title: "\(option.localizedName)  \(option.title)",
+                action: #selector(selectKeyColorRole(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = KeyColorMenuPayload(role: role, option: option)
+            item.state = current == option ? .on : .off
+            submenu.addItem(item)
+        }
+
+        let root = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        root.submenu = submenu
+        return root
+    }
+
     @objc private func toggleEnabled() {
         AppSettings.shared.isEnabled.toggle()
         rebuildMenu()
@@ -161,11 +177,17 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
         }
     }
 
-    @objc private func selectSpecialKeyColor(_ sender: NSMenuItem) {
-        if let color = sender.representedObject as? SpecialKeyColor {
-            AppSettings.shared.specialKeyColor = color
-            rebuildMenu()
+    @objc private func selectKeyColorRole(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? KeyColorMenuPayload else { return }
+        switch payload.role {
+        case .regular:
+            AppSettings.shared.keyColor = payload.option
+        case .modifier:
+            AppSettings.shared.modifierColor = payload.option
+        case .escape, .special:
+            AppSettings.shared.escapeColor = payload.option
         }
+        rebuildMenu()
     }
 
     @objc private func selectKeycapStyle(_ sender: NSMenuItem) {
@@ -201,5 +223,16 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
     public func menuWillOpen(_ menu: NSMenu) {
         AppSettings.shared.checkAccessibility()
         rebuildMenu()
+    }
+}
+
+/// 菜单项负载：把「配色角色 + 具体色号」一并放入 NSMenuItem.representedObject
+private final class KeyColorMenuPayload: NSObject {
+    let role: KeyColorRole
+    let option: KeyColorOption
+
+    init(role: KeyColorRole, option: KeyColorOption) {
+        self.role = role
+        self.option = option
     }
 }
