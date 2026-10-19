@@ -5,8 +5,45 @@
 
 import XCTest
 @testable import KeyGlow
+import SwiftUI
 
 final class KeyGlowTests: XCTestCase {
+
+    @MainActor
+    func testPreferencesViewAndKeycapItemViewLayout() throws {
+        // 验证偏好设置视图能在标准窗口尺寸下正常布局
+        let view = PreferencesView()
+        let hostingView = NSHostingView(rootView: view)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 520, height: 620)
+        hostingView.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(hostingView.fittingSize.width, 0)
+        XCTAssertGreaterThan(hostingView.fittingSize.height, 0)
+
+        // 验证键帽在不同尺寸下的组件实例化与内在约束
+        let item1 = KeycapItemView(
+            style: .classicDark,
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            minWidth: 40,
+            height: 40,
+            isSpecialKey: true,
+            isModifierKey: true
+        )
+        let hostItem1 = NSHostingView(rootView: item1)
+        hostItem1.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(hostItem1.fittingSize.width, 0)
+        XCTAssertLessThanOrEqual(hostItem1.fittingSize.width, 100) // 不应无限膨胀溢出
+
+        let item2 = KeycapItemView(
+            style: .frostedGlass,
+            content: .text("C"),
+            minWidth: 54,
+            height: 54
+        )
+        let hostItem2 = NSHostingView(rootView: item2)
+        hostItem2.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(hostItem2.fittingSize.width, 0)
+        XCTAssertLessThanOrEqual(hostItem2.fittingSize.width, 100)
+    }
 
     func testKeyModifierOrderingAndSymbols() {
         // macOS 官方修饰键排序：⌃ ⌥ ⇧ ⌘

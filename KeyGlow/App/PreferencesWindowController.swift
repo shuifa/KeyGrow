@@ -27,7 +27,8 @@ public final class PreferencesWindowController {
 
         let window = NSWindow(contentViewController: hostingController)
         window.title = "KeyGlow 偏好设置"
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.minSize = NSSize(width: 480, height: 500)
         window.isReleasedWhenClosed = false
         window.center()
 

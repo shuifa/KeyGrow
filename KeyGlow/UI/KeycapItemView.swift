@@ -78,48 +78,70 @@ public struct KeycapItemView: View {
         customOpacity ?? AppSettings.shared.keyOpacity
     }
 
+    // MARK: - 动态尺寸与字体规范（根据键帽高度自适应缩放）
+
+    private var cornerRadius: CGFloat {
+        max(6, round(height * 0.22))
+    }
+
+    private var symbolFontSize: CGFloat {
+        max(11, round(height * 0.33))
+    }
+
+    private var singleCharFontSize: CGFloat {
+        max(11, round(height * 0.33))
+    }
+
+    private var multiCharFontSize: CGFloat {
+        max(10, round(height * 0.25))
+    }
+
+    private var horizontalPadding: CGFloat {
+        max(6, round(height * 0.16))
+    }
+
     // MARK: - 主体渲染
 
     public var body: some View {
-        ZStack {
-            // 1. 物理侧面立体下沉底座（Extrusion Base，营造键帽物理厚度）
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(effectiveKeyColor.extrusionBaseColor)
-                .offset(y: 3)
-                .frame(minWidth: minWidth, minHeight: height)
+        innerContent
+            .padding(.horizontal, horizontalPadding)
+            .frame(minWidth: minWidth, minHeight: height)
+            .fixedSize(horizontal: true, vertical: false)
+            .background(
+                ZStack {
+                    // 1. 物理侧面立体下沉底座（Extrusion Base，营造键帽物理厚度）
+                    RoundedRectangle(cornerRadius: cornerRadius + 1, style: .continuous)
+                        .fill(effectiveKeyColor.extrusionBaseColor)
+                        .offset(y: 3)
 
-            // 2. 拟物实体按键顶面（Dish Concave Face）
-            faceBackgroundLayer
-                .frame(minWidth: minWidth, minHeight: height)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(concaveDishOverlay)
-                .overlay(borderHighlight)
-
-            // 3. 内部激光雕刻/双色注塑字符
-            innerContent
-                .padding(.horizontal, 10)
-        }
-        .frame(minWidth: minWidth, minHeight: height + 3) // 包含侧面下沉厚度
-        .opacity(effectiveOpacity)
-        // 双层立体物理投影：底部真实接触暗影 + 环境光晕投影
-        .shadow(color: ambientShadowColor, radius: 10, x: 0, y: 5)
-        .shadow(color: contactShadowColor, radius: 2.5, x: 0, y: 2.5)
+                    // 2. 拟物实体按键顶面（Dish Concave Face）
+                    faceBackgroundLayer
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                        .overlay(concaveDishOverlay)
+                        .overlay(borderHighlight)
+                }
+            )
+            .frame(minHeight: height + 3) // 包含侧面下沉厚度
+            .opacity(effectiveOpacity)
+            // 双层立体物理投影：底部真实接触暗影 + 环境光晕投影
+            .shadow(color: ambientShadowColor, radius: 8, x: 0, y: 4)
+            .shadow(color: contactShadowColor, radius: 2, x: 0, y: 1.5)
     }
 
-    // MARK: - 内部图标/文本呈现（带下沉凹刻立体光影）
+    // MARK: - 内部图标/文本呈现（带下沉凹刻立体光影与精致字体）
 
     @ViewBuilder
     private var innerContent: some View {
         switch content {
         case .symbol(let name, let fallback):
             Image(systemName: name)
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: symbolFontSize, weight: .semibold))
                 .foregroundColor(effectiveKeyColor.foregroundColor)
                 .shadow(color: effectiveKeyColor.textShadowColor, radius: 0.5, x: 0, y: isLightKey ? 1 : -1)
                 .accessibilityLabel(fallback)
         case .text(let str):
             Text(str)
-                .font(.system(size: str.count > 2 ? 17 : 22, weight: .semibold, design: .rounded))
+                .font(.system(size: str.count > 2 ? multiCharFontSize : singleCharFontSize, weight: .semibold, design: .rounded))
                 .foregroundColor(effectiveKeyColor.foregroundColor)
                 .shadow(color: effectiveKeyColor.textShadowColor, radius: 0.5, x: 0, y: isLightKey ? 1 : -1)
                 .lineLimit(1)
@@ -149,7 +171,7 @@ public struct KeycapItemView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
 
                 // 中央内凹碟面光影（中心略暗，边缘稍亮）
                 RadialGradient(
@@ -159,9 +181,9 @@ public struct KeycapItemView: View {
                     ],
                     center: .center,
                     startRadius: 2,
-                    endRadius: 28
+                    endRadius: round(height * 0.52)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
 
         case .frostedGlass:
@@ -170,7 +192,7 @@ public struct KeycapItemView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
 
         case .auroraGlow:
             RadialGradient(
@@ -180,9 +202,9 @@ public struct KeycapItemView: View {
                 ],
                 center: .topLeading,
                 startRadius: 2,
-                endRadius: 40
+                endRadius: round(height * 0.74)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
     }
 
@@ -223,7 +245,7 @@ public struct KeycapItemView: View {
 
     @ViewBuilder
     private var borderHighlight: some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .strokeBorder(
                 effectiveBorderColor.strokeGradient(for: effectiveKeyColor),
                 lineWidth: 1.2

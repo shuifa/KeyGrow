@@ -31,9 +31,9 @@ public struct PreferencesView: View {
 
         var localizedTitle: String {
             switch self {
-            case .keyColor: return "常规按键"
+            case .keyColor: return "常规键"
             case .modifierColor: return "修饰键"
-            case .escapeColor: return "Escape 键"
+            case .escapeColor: return "Esc 键"
             case .borderColor: return "边框高光"
             }
         }
@@ -95,7 +95,7 @@ public struct PreferencesView: View {
                 .padding(20)
             }
         }
-        .frame(width: 540, height: 680)
+        .frame(width: 520, height: 620)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             settings.checkAccessibility()
@@ -242,7 +242,7 @@ public struct PreferencesView: View {
             // 分类选择器
             Picker("", selection: $selectedColorCategory) {
                 ForEach(ColorCategory.allCases) { cat in
-                    Text("\(cat.title) (\(cat.localizedTitle))").tag(cat)
+                    Text(cat.localizedTitle).tag(cat)
                 }
             }
             .pickerStyle(.segmented)
@@ -378,22 +378,23 @@ public struct PreferencesView: View {
                             settings.borderColor = opt
                         }
                     } label: {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 7) {
                             Circle()
                                 .fill(opt.previewColor)
-                                .frame(width: 16, height: 16)
+                                .frame(width: 14, height: 14)
                                 .overlay(
                                     Circle()
                                         .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
                                 )
 
-                            Text(opt.title)
+                            Text(opt.localizedName)
                                 .font(.system(size: 11, weight: settings.borderColor == opt ? .bold : .regular))
                                 .foregroundColor(settings.borderColor == opt ? .primary : .secondary)
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.85)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 7)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -437,12 +438,11 @@ public struct PreferencesView: View {
                             KeycapItemView(
                                 style: style,
                                 content: .symbol(name: "command", fallbackText: "⌘"),
-                                minWidth: 42,
-                                height: 42,
+                                minWidth: 40,
+                                height: 40,
                                 isSpecialKey: true,
                                 isModifierKey: true
                             )
-                            .scaleEffect(0.85)
 
                             Text(style.title)
                                 .font(.caption)
