@@ -14,7 +14,7 @@ import SwiftUI
 public final class KeyMonitor: ObservableObject {
     public static let shared = KeyMonitor()
 
-    /// 当前处于展示生命周期内的连续按键队列（最多 3 个）
+    /// 当前处于展示生命周期内的连续按键队列（最多 2 个，同时按多个算一个）
     @Published public private(set) var activeStrokes: [KeyStroke] = []
 
     /// 最新按下的按键（兼容性快捷访问）
@@ -137,8 +137,8 @@ public final class KeyMonitor: ObservableObject {
                 self.activeStrokes[self.activeStrokes.count - 1].repeatCount &+= 1
                 target = self.activeStrokes[self.activeStrokes.count - 1]
             } else {
-                // 普通追加（连续按键队列最多保留 3 个，溢出时移除最左侧最早按下的元素）
-                if self.activeStrokes.count >= 3 {
+                // 普通追加（连续按键队列最多保留 2 个，同时按多个算一个；溢出时移除最左侧最早按下的元素）
+                if self.activeStrokes.count >= 2 {
                     let removed = self.activeStrokes.removeFirst()
                     self.removalTasks[removed.id]?.cancel()
                     self.removalTasks.removeValue(forKey: removed.id)

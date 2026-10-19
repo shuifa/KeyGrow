@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// 悬浮层主内容容器：负责多按键队列（最多 3 个）、从右边进左边出的 Spring 动效与自适应排版
+/// 悬浮层主内容容器：负责按键队列（最多 2 个，同时按多个算一个）、从右边进左边出的 Spring 动效与自适应排版
 public struct OverlayContentView: View {
     @ObservedObject private var monitor = KeyMonitor.shared
     @ObservedObject private var settings = AppSettings.shared

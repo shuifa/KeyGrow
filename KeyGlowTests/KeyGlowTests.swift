@@ -302,21 +302,7 @@ final class KeyGlowTests: XCTestCase {
         let id1 = stroke1.id
         XCTAssertEqual(monitor.punchCounters[id1], 1)
 
-        // 2. 模拟第二张卡片
-        let stroke2 = KeyStroke(
-            modifiers: [.command],
-            content: .text("V"),
-            rawIdentifier: "cmd+v",
-            isShortcut: true
-        )
-        monitor.simulateKeyStroke(stroke2)
-        let id2 = stroke2.id
-
-        // 验证：id1 的计数未发生变化（依然为 1），只有新增的 id2 为 1
-        XCTAssertEqual(monitor.punchCounters[id1], 1)
-        XCTAssertEqual(monitor.punchCounters[id2], 1)
-
-        // 3. 模拟第 3 张修饰键卡片
+        // 2. 模拟第二张修饰键卡片（当前队列满 2 张）
         let modStroke = KeyStroke(
             modifiers: [],
             content: .symbol(name: "command", fallbackText: "⌘"),
@@ -328,10 +314,9 @@ final class KeyGlowTests: XCTestCase {
         monitor.simulateKeyStroke(modStroke)
         let modId = modStroke.id
         XCTAssertEqual(monitor.punchCounters[id1], 1)
-        XCTAssertEqual(monitor.punchCounters[id2], 1)
         XCTAssertEqual(monitor.punchCounters[modId], 1)
 
-        // 4. 就地升级该修饰键卡片
+        // 3. 就地升级该修饰键卡片（不产生新卡片，只升级 modId 卡片）
         let upgradeStroke = KeyStroke(
             modifiers: [.command],
             content: .text("Z"),
@@ -341,10 +326,23 @@ final class KeyGlowTests: XCTestCase {
         )
         monitor.simulateKeyStroke(upgradeStroke)
 
-        // 验证：id1 与 id2 依然为 1，被就地升级的目标卡 modId 计数递增到 2
+        // 验证：id1 依然为 1，被就地升级的目标卡 modId 计数递增到 2
         XCTAssertEqual(monitor.punchCounters[id1], 1)
-        XCTAssertEqual(monitor.punchCounters[id2], 1)
         XCTAssertEqual(monitor.punchCounters[modId], 2)
+
+        // 4. 当追加第 3 张卡片时，因队列上限为 2，最左侧最早的 id1 出队并移除计数
+        let stroke3 = KeyStroke(
+            modifiers: [.command],
+            content: .text("V"),
+            rawIdentifier: "cmd+v",
+            isShortcut: true
+        )
+        monitor.simulateKeyStroke(stroke3)
+        let id3 = stroke3.id
+
+        XCTAssertNil(monitor.punchCounters[id1], "出队的卡片计数应当被清理")
+        XCTAssertEqual(monitor.punchCounters[modId], 2)
+        XCTAssertEqual(monitor.punchCounters[id3], 1)
 
         monitor.clearStroke()
     }
@@ -639,5 +637,153 @@ final class KeyGlowTests: XCTestCase {
             XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
         }
     }
+
+    // MARK: - 需求 2 专项测试：容器最多同时显示 2 个按键，同时按多个算一个
+    @MainActor
+    func testQueueCapacityLimitedToTwo() {
+        let monitor = KeyMonitor.shared
+        monitor.clearStroke()
+
+        // 1. 推入第 1 个按键 A
+        let strokeA = KeyStroke(modifiers: [], content: .text("A"), rawIdentifier: "a")
+        monitor.simulateKeyStroke(strokeA)
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("A"))
+
+        // 2. 推入第 2 个按键 B
+        let strokeB = KeyStroke(modifiers: [], content: .text("B"), rawIdentifier: "b")
+        monitor.simulateKeyStroke(strokeB)
+        XCTAssertEqual(monitor.activeStrokes.count, 2)
+        XCTAssertEqual(monitor.activeStrokes.map { $0.content }, [.text("A"), .text("B")])
+
+        // 3. 推入第 3 个按键 C：最左侧最早的 A 被移除，队列长度保持为 2，内容为 [B, C]
+        let strokeC = KeyStroke(modifiers: [], content: .text("C"), rawIdentifier: "c")
+        monitor.simulateKeyStroke(strokeC)
+        XCTAssertEqual(monitor.activeStrokes.count, 2, "队列上限必须恒为 2")
+        XCTAssertEqual(monitor.activeStrokes.map { $0.content }, [.text("B"), .text("C")])
+
+        monitor.clearStroke()
+    }
+
+    // MARK: - 需求 2 专项测试：同时按多个算一个（组合键与连续修饰键就地升级）
+    @MainActor
+    func testMultipleKeysTogetherCountAsOne() {
+        let monitor = KeyMonitor.shared
+        monitor.clearStroke()
+
+        // 1. 同时按下 ⌘ + ⇧ + C：属于一个组合按键卡片
+        let combo = KeyStroke(
+            modifiers: [.command, .shift],
+            content: .text("C"),
+            rawIdentifier: "cmd+shift+c",
+            isShortcut: true
+        )
+        monitor.simulateKeyStroke(combo)
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.modifiers, [.shift, .command])
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("C"))
+
+        // 2. 清理后测试：先按住 ⌘，未松开时按 ⌥，未松开时按 K -> 就地升级，始终保持为 1 个卡片
+        monitor.clearStroke()
+
+        let mod1 = KeyStroke(modifiers: [], content: .symbol(name: "command", fallbackText: "⌘"), rawIdentifier: "command", isShortcut: true, isSpecialFunctionKey: true, isModifierOnly: true)
+        monitor.simulateKeyStroke(mod1)
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+
+        let mod2 = KeyStroke(modifiers: [.option], content: .symbol(name: "command", fallbackText: "⌘"), rawIdentifier: "option+command", isShortcut: true, isSpecialFunctionKey: true, isModifierOnly: true)
+        monitor.simulateKeyStroke(mod2)
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+
+        let mod3 = KeyStroke(modifiers: [.option, .command], content: .text("K"), rawIdentifier: "option+command+k", isShortcut: true, isSpecialFunctionKey: false, isModifierOnly: false)
+        monitor.simulateKeyStroke(mod3)
+        XCTAssertEqual(monitor.activeStrokes.count, 1, "同时按或连按升级必须只算 1 个卡片")
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("K"))
+
+        monitor.clearStroke()
+    }
+
+    // MARK: - 需求 3 专项测试：修复单独点击字母按键不显示的问题
+    @MainActor
+    func testStandaloneLetterKeysMappingAndDisplay() {
+        // 1. 验证在没有按下任何修饰键时，单按字母按键 A(0), C(8), Z(6) 正确解析为字母字符
+        let testLetters: [(name: String, code: CGKeyCode)] = [
+            ("A", 0), ("C", 8), ("Z", 6), ("B", 11), ("W", 13)
+        ]
+
+        for item in testLetters {
+            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: item.code, keyDown: true) else {
+                XCTFail("无法创建测试 CGEvent: \(item.name)")
+                continue
+            }
+            // 无修饰键状态（单独点击）
+            event.flags = []
+
+            let keyInfo = KeyCodeMapper.map(event: event, keyCode: item.code)
+            XCTAssertEqual(keyInfo.content, .text(item.name), "单独点击字母 \(item.name) 应当展示为 \(item.name)")
+            XCTAssertFalse(keyInfo.isSpecialFunctionKey, "字母按键不属于系统特殊功能键")
+            XCTAssertEqual(keyInfo.identifier, item.name.lowercased())
+        }
+
+        // 2. 验证在 KeyMonitor 队列中单独添加字母按键卡片能够顺利入队并展示
+        let monitor = KeyMonitor.shared
+        monitor.clearStroke()
+
+        let letterA = KeyStroke(modifiers: [], content: .text("A"), rawIdentifier: "a", isShortcut: true, isSpecialFunctionKey: false)
+        monitor.simulateKeyStroke(letterA)
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("A"))
+
+        let letterB = KeyStroke(modifiers: [], content: .text("B"), rawIdentifier: "b", isShortcut: true, isSpecialFunctionKey: false)
+        monitor.simulateKeyStroke(letterB)
+        XCTAssertEqual(monitor.activeStrokes.count, 2)
+        XCTAssertEqual(monitor.activeStrokes.last?.content, .text("B"))
+
+        monitor.clearStroke()
+    }
+
+    // MARK: - 需求 1 专项测试：Keystroke Pro 独立配色与实体拟物选项测试
+    @MainActor
+    func testKeyColorOptionsAndSkeuomorphProperties() {
+        // 1. 验证 KeyColorOption 覆盖 10 种经典配色
+        XCTAssertEqual(KeyColorOption.allCases.count, 10)
+        XCTAssertEqual(KeyColorOption.beige1984.title, "1984s Beige")
+        XCTAssertEqual(KeyColorOption.azureBlue.title, "Azure Blue")
+        XCTAssertEqual(KeyColorOption.mambaGreen.title, "Mamba Green")
+        XCTAssertEqual(KeyColorOption.space.title, "Space")
+        XCTAssertEqual(KeyColorOption.sunsetOrange.title, "Sunset Orange")
+        XCTAssertEqual(KeyColorOption.cyberViolet.title, "Cyber Violet")
+        XCTAssertEqual(KeyColorOption.berryPink.title, "Berry Pink")
+        XCTAssertEqual(KeyColorOption.crimsonRed.title, "Crimson Red")
+        XCTAssertEqual(KeyColorOption.pureWhite.title, "Pure White")
+        XCTAssertEqual(KeyColorOption.matteCharcoal.title, "Matte Charcoal")
+
+        // 2. 验证每种配色均提供物理厚度底座色彩与顶面物理渐变
+        for opt in KeyColorOption.allCases {
+            let colors = opt.topFaceColors(for: .classicDark)
+            XCTAssertEqual(colors.count, 2, "\(opt.title) 顶面必须具备双色微弧渐变")
+            _ = opt.extrusionBaseColor
+            _ = opt.foregroundColor
+            _ = opt.glowColor
+        }
+
+        // 3. 验证 BorderColorOption
+        XCTAssertEqual(BorderColorOption.allCases.count, 6)
+        XCTAssertEqual(BorderColorOption.matching.title, "Auto (Matching)")
+        XCTAssertEqual(BorderColorOption.space.title, "Space")
+        XCTAssertEqual(BorderColorOption.subtleWhite.title, "Subtle White")
+        XCTAssertEqual(BorderColorOption.vintageBrass.title, "Vintage Brass")
+        XCTAssertEqual(BorderColorOption.neonCyan.title, "Neon Cyan")
+        XCTAssertEqual(BorderColorOption.minimal.title, "Minimal")
+
+        // 4. 验证 AppSettings 的默认配置（符合用户给出的 Keystroke Pro 初始设定）
+        let settings = AppSettings.shared
+        XCTAssertEqual(settings.displayMode, .allKeys, "默认触发模式必须为全按键模式，保证打字可见")
+        XCTAssertEqual(settings.keyColor, .beige1984, "默认 Key Color 必须为 1984s Beige")
+        XCTAssertEqual(settings.modifierColor, .azureBlue, "默认 Modifier Color 必须为 Azure Blue")
+        XCTAssertEqual(settings.escapeColor, .mambaGreen, "默认 Escape Color 必须为 Mamba Green")
+        XCTAssertEqual(settings.borderColor, .space, "默认 Border Color 必须为 Space")
+        XCTAssertEqual(settings.keyOpacity, 1.0, "默认 Opacity 必须为 100%")
+    }
 }
+
 

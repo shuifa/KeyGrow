@@ -31,21 +31,25 @@ public struct KeycapView: View {
 
     public var body: some View {
         HStack(spacing: 5) {
-            // 修饰键列表（⌘ ⌥ ⌃ ⇧ 等，作为特殊键着色）
+            // 修饰键列表（⌘ ⌥ ⌃ ⇧ 等，采用 Modifier Color）
             ForEach(stroke.modifiers, id: \.self) { modifier in
                 KeycapItemView(
                     style: style,
                     content: .symbol(name: modifier.sfSymbol, fallbackText: modifier.glyph),
                     isSpecialKey: true,
+                    isModifierKey: true,
+                    isEscapeKey: false,
                     accentColor: accentColor
                 )
             }
 
-            // 主按键展示（若为 Esc、Tab、Return 等特殊功能键，自动赋予特殊键强调色）
+            // 主按键展示（如果是 Esc，采用 Escape Color；其他特殊键采用 Special Color；普通字母/数字采用 Key Color）
             KeycapItemView(
                 style: style,
                 content: stroke.content,
                 isSpecialKey: stroke.isSpecialFunctionKey,
+                isModifierKey: stroke.isModifierOnly,
+                isEscapeKey: stroke.rawIdentifier == "esc" || stroke.rawIdentifier == "escape",
                 accentColor: accentColor
             )
             .overlay(alignment: .topTrailing) {
