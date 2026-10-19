@@ -56,18 +56,19 @@ public struct KeycapItemView: View {
             return custom
         }
 
+        // 与 KeycapView / 连按角标共用同一角色解析，确保任何位置的同类按键颜色完全一致
         let settings = AppSettings.shared
+        let role: KeyColorRole
         if isEscapeKey {
-            return settings.escapeColor
+            role = .escape
         } else if isModifierKey {
-            return settings.modifierColor
+            role = .modifier
         } else if isSpecialKey {
-            // 特殊功能键（如 Return、Tab、Space、方向键）默认跟随 Escape Color 或 Modifier Color
-            return settings.escapeColor
+            role = .special
         } else {
-            // 普通字符/字母键（Key Color，如 1984s Beige）
-            return settings.keyColor
+            role = .regular
         }
+        return settings.keyColor(for: role)
     }
 
     private var effectiveBorderColor: BorderColorOption {
@@ -150,7 +151,7 @@ public struct KeycapItemView: View {
     }
 
     private var isLightKey: Bool {
-        effectiveKeyColor == .beige1984 || effectiveKeyColor == .pureWhite || effectiveKeyColor == .mambaGreen
+        effectiveKeyColor.isLightSurface
     }
 
     // MARK: - 拟物顶面微弧碟面层（Concave Dish Overlay）
@@ -159,24 +160,37 @@ public struct KeycapItemView: View {
     private var concaveDishOverlay: some View {
         switch style {
         case .classicDark:
-            // 实体拟物：顶部微弱光漫反射与中心内凹渐变
+            // 实体拟物：顶部强受光高光 + 极轻的中心内凹，避免把明亮色系压暗
             ZStack {
-                // 顶部 1px 微弧高光漫反射
+                // 顶部微弧受光面（亮部增强，暗部仅保留极轻的弧面收边）
                 LinearGradient(
-                    colors: [
-                        Color.white.opacity(isLightKey ? 0.35 : 0.18),
-                        Color.clear,
-                        Color.black.opacity(isLightKey ? 0.08 : 0.22)
+                    stops: [
+                        .init(color: Color.white.opacity(isLightKey ? 0.45 : 0.34), location: 0.0),
+                        .init(color: Color.white.opacity(isLightKey ? 0.12 : 0.08), location: 0.38),
+                        .init(color: Color.clear, location: 0.72),
+                        .init(color: Color.black.opacity(isLightKey ? 0.04 : 0.10), location: 1.0)
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
 
+                // 左上角柔和镜面反射高光（提升亚克力质感，不改变整体色相）
+                RadialGradient(
+                    colors: [
+                        Color.white.opacity(isLightKey ? 0.30 : 0.16),
+                        Color.clear
+                    ],
+                    center: .topLeading,
+                    startRadius: 0,
+                    endRadius: round(height * 0.62)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+
                 // 中央内凹碟面光影（中心略暗，边缘稍亮）
                 RadialGradient(
                     colors: [
-                        Color.black.opacity(isLightKey ? 0.04 : 0.15),
+                        Color.black.opacity(isLightKey ? 0.02 : 0.06),
                         Color.clear
                     ],
                     center: .center,
@@ -188,7 +202,7 @@ public struct KeycapItemView: View {
 
         case .frostedGlass:
             LinearGradient(
-                colors: [Color.white.opacity(0.18), Color.clear],
+                colors: [Color.white.opacity(0.22), Color.clear],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -210,35 +224,8 @@ public struct KeycapItemView: View {
 
     // MARK: - 顶面材质背景
 
-    @ViewBuilder
     private var faceBackgroundLayer: some View {
-        switch style {
-        case .classicDark:
-            LinearGradient(
-                colors: effectiveKeyColor.topFaceColors(for: style),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-        case .frostedGlass:
-            ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                effectiveKeyColor.color.opacity(0.20)
-            }
-
-        case .auroraGlow:
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.11, green: 0.12, blue: 0.18),
-                        Color(red: 0.05, green: 0.06, blue: 0.10)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                effectiveKeyColor.color.opacity(0.18)
-            }
-        }
+        KeycapFaceBackground(style: style, keyColor: effectiveKeyColor)
     }
 
     // MARK: - 边缘微倒角物理高光（Chamfer Border Highlight）
@@ -260,5 +247,41 @@ public struct KeycapItemView: View {
 
     private var contactShadowColor: Color {
         Color.black.opacity(0.45)
+    }
+}
+
+/// 键帽顶面材质背景（键帽本体与连按角标共用，保证二者的底色、色相与明度完全一致）
+struct KeycapFaceBackground: View {
+    let style: KeycapStyle
+    let keyColor: KeyColorOption
+
+    var body: some View {
+        switch style {
+        case .classicDark:
+            LinearGradient(
+                colors: keyColor.topFaceColors(for: style),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+        case .frostedGlass:
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                keyColor.color.opacity(0.42)
+            }
+
+        case .auroraGlow:
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.11, green: 0.12, blue: 0.18),
+                        Color(red: 0.05, green: 0.06, blue: 0.10)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                keyColor.color.opacity(0.26)
+            }
+        }
     }
 }

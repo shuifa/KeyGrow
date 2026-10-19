@@ -234,7 +234,7 @@ public struct PreferencesView: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("参考 Keystroke Pro 独立配色")
+                Text("明亮色系 · 12 色")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -250,46 +250,37 @@ public struct PreferencesView: View {
             // 对应类别的具体颜色选择
             switch selectedColorCategory {
             case .keyColor:
-                colorPickerRow(
+                keyColorPicker(
                     title: "常规字母/字符键 (Key Color)",
-                    currentSelection: settings.keyColor.rawValue,
-                    options: KeyColorOption.allCases.map { ($0.rawValue, $0.title, $0.localizedName, $0.color) },
-                    onSelect: { raw in
-                        if let opt = KeyColorOption(rawValue: raw) {
-                            withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                                settings.keyColor = opt
-                            }
-                        }
+                    sampleContent: .text("A"),
+                    currentSelection: settings.keyColor
+                ) { opt in
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                        settings.keyColor = opt
                     }
-                )
+                }
 
             case .modifierColor:
-                colorPickerRow(
+                keyColorPicker(
                     title: "修饰键配色 (Modifier Color: ⌘ ⌥ ⌃ ⇧)",
-                    currentSelection: settings.modifierColor.rawValue,
-                    options: KeyColorOption.allCases.map { ($0.rawValue, $0.title, $0.localizedName, $0.color) },
-                    onSelect: { raw in
-                        if let opt = KeyColorOption(rawValue: raw) {
-                            withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                                settings.modifierColor = opt
-                            }
-                        }
+                    sampleContent: .symbol(name: "command", fallbackText: "⌘"),
+                    currentSelection: settings.modifierColor
+                ) { opt in
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                        settings.modifierColor = opt
                     }
-                )
+                }
 
             case .escapeColor:
-                colorPickerRow(
+                keyColorPicker(
                     title: "Escape 与特殊功能键 (Escape Color)",
-                    currentSelection: settings.escapeColor.rawValue,
-                    options: KeyColorOption.allCases.map { ($0.rawValue, $0.title, $0.localizedName, $0.color) },
-                    onSelect: { raw in
-                        if let opt = KeyColorOption(rawValue: raw) {
-                            withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                                settings.escapeColor = opt
-                            }
-                        }
+                    sampleContent: .symbol(name: "escape", fallbackText: "Esc"),
+                    currentSelection: settings.escapeColor
+                ) { opt in
+                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                        settings.escapeColor = opt
                     }
-                )
+                }
 
             case .borderColor:
                 borderColorPickerRow
@@ -317,49 +308,52 @@ public struct PreferencesView: View {
         )
     }
 
-    private func colorPickerRow(
+    /// 配色选择器：直接以真实键帽渲染每个色号，所见即所得地呈现明度、字符对比与材质高光
+    private func keyColorPicker(
         title: String,
-        currentSelection: String,
-        options: [(id: String, title: String, localized: String, color: Color)],
-        onSelect: @escaping (String) -> Void
+        sampleContent: KeyDisplayContent,
+        currentSelection: KeyColorOption,
+        onSelect: @escaping (KeyColorOption) -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            // 10 种精选色块水平排布网格
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 10) {
-                ForEach(options, id: \.id) { opt in
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 9) {
+                ForEach(KeyColorOption.allCases) { opt in
                     Button {
-                        onSelect(opt.id)
+                        onSelect(opt)
                     } label: {
-                        VStack(spacing: 4) {
-                            ZStack {
-                                Circle()
-                                    .fill(opt.color)
-                                    .frame(width: 30, height: 30)
-                                    .shadow(color: opt.color.opacity(0.4), radius: 3, x: 0, y: 1.5)
+                        VStack(spacing: 5) {
+                            KeycapItemView(
+                                style: settings.keycapStyle,
+                                content: sampleContent,
+                                minWidth: 44,
+                                height: 38,
+                                customKeyColor: opt,
+                                customBorderColor: settings.borderColor
+                            )
 
-                                if currentSelection == opt.id {
-                                    Circle()
-                                        .strokeBorder(Color.white, lineWidth: 2.2)
-                                        .frame(width: 32, height: 32)
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(opt.id == "beige1984" || opt.id == "pureWhite" || opt.id == "mambaGreen" ? .black : .white)
-                                }
-                            }
-
-                            Text(opt.title)
-                                .font(.system(size: 10, weight: currentSelection == opt.id ? .bold : .regular))
-                                .foregroundColor(currentSelection == opt.id ? .primary : .secondary)
+                            Text(opt.localizedName)
+                                .font(.system(size: 10, weight: currentSelection == opt ? .bold : .regular))
+                                .foregroundColor(currentSelection == opt ? .primary : .secondary)
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.8)
                         }
                         .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(currentSelection == opt ? Color.accentColor.opacity(0.12) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .strokeBorder(currentSelection == opt ? Color.accentColor : Color.clear, lineWidth: 1.2)
+                        )
                     }
                     .buttonStyle(.plain)
+                    .help("\(opt.title) · \(opt.localizedName)")
                 }
             }
         }
