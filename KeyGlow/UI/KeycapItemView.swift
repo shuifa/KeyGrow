@@ -9,6 +9,12 @@ import SwiftUI
 ///
 /// 自 0.12 起，颜色不再由视图内部猜测，而是由调用方传入 `KeycapPalette`（通常来自当前主题 + 按键角色），
 /// 视图本身只负责「材质、光照、排版」三件事。
+///
+/// 0.14 起立体结构改为「单一侧壁轮廓 + 顶面覆盖」：
+/// 旧版把顶面与一块同尺寸的底座错位 3pt 叠放，四个边只有下方露出一点色带，
+/// 读起来更像一张带投影的贴纸；新版把键帽本体画成一个**整体拉长的圆角矩形**（含前壁厚度），
+/// 顶面按水平方向向内收窄后覆盖其上，于是左右两侧的斜壁、底部的前壁都成为真实可见的体块，
+/// 配合「左上来光」的方向光与顶面/前壁交界的折角暗部，形成实体键帽的体积感。
 public struct KeycapItemView: View {
     public let style: KeycapStyle
     public let content: KeyDisplayContent
@@ -55,6 +61,30 @@ public struct KeycapItemView: View {
         max(6, round(height * 0.16))
     }
 
+    // MARK: - 立体几何规范（全部由键帽高度派生，缩放到任意尺寸比例不变）
+
+    /// 前壁高度：键帽的「物理厚度」，54pt 键帽约 5pt
+    private var wallDepth: CGFloat {
+        max(3, round(height * 0.095))
+    }
+
+    /// 顶面的水平收窄量：收窄后左右两侧的斜壁才会露出来，
+    /// 这是「平面贴纸」与「实体键帽」最直接的差别
+    private var sideInset: CGFloat {
+        max(1, round(height * 0.025))
+    }
+
+    /// 顶面圆角：与底座同心收窄，保证转角处侧壁宽度与直边一致，不出现「双描边」
+    private var faceCornerRadius: CGFloat {
+        max(5, cornerRadius - sideInset)
+    }
+
+    /// 侧壁基色：由顶面下沿再压暗派生（而不是直接复用 `extrusion`），
+    /// 使「顶面 → 侧壁」成为连续过渡，避免一圈突兀的深色贴边
+    private var wallBaseColor: KeyColorRGB {
+        palette.bottom.mixed(with: .black, ratio: palette.isLightSurface ? 0.11 : 0.28)
+    }
+
     /// SF Symbols 各自的光学包围盒并不一致（⌃ 明显偏小、⌘ 偏大），
     /// 统一按符号做一次视觉尺寸校正，保证一排修饰键看起来是「同号字」。
     private var symbolOpticalScale: CGFloat {
@@ -76,25 +106,15 @@ public struct KeycapItemView: View {
             .padding(.horizontal, horizontalPadding)
             .frame(minWidth: minWidth, minHeight: height)
             .fixedSize(horizontal: true, vertical: false)
-            .background(
-                ZStack {
-                    // 1. 物理侧面立体下沉底座（Extrusion Base，营造键帽物理厚度）
-                    RoundedRectangle(cornerRadius: cornerRadius + 1, style: .continuous)
-                        .fill(palette.extrusion.color)
-                        .offset(y: 3)
-
-                    // 2. 拟物实体按键顶面（Dish Concave Face）
-                    faceBackgroundLayer
-                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                        .overlay(concaveDishOverlay)
-                        .overlay(borderHighlight)
-                }
-            )
-            .frame(minHeight: height + 3) // 包含侧面下沉厚度
+            // 键帽壳体绘制在内容之外，前壁向下溢出布局尺寸，因此外层预留 wallDepth
+            .background(alignment: .top) { keycapShell }
+            .frame(minHeight: height + wallDepth, alignment: .top)
             .opacity(opacity)
-            // 双层立体物理投影：低强度彩色环境光晕 + 中性接触暗影（保证边缘锐度，避免彩雾）
-            .shadow(color: palette.glowColor, radius: 4, x: 0, y: 3)
-            .shadow(color: Color.black.opacity(0.34), radius: 2, x: 0, y: 1.5)
+            // 三层投影：彩色环境光晕 → 大范围柔和接触影 → 紧贴底沿的锐利投影，
+            // 首层负责让键帽"落在"主题色的环境里，后两层负责把键帽压实在桌面上
+            .shadow(color: palette.glowColor, radius: 4, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.16), radius: 7, x: 1, y: 5)
+            .shadow(color: Color.black.opacity(0.30), radius: 1.4, x: 0, y: 1.2)
     }
 
     // MARK: - 内部图标/文本呈现
@@ -121,6 +141,63 @@ public struct KeycapItemView: View {
         }
     }
 
+    // MARK: - 键帽壳体（侧壁 + 顶面）
+
+    /// 壳体自下而上三层：
+    /// 1. 侧壁：一整块「拉长的圆角矩形」，底部多出的 wallDepth 就是前壁厚度；
+    /// 2. 方向光：左亮右暗的柱面明暗，说明光从左上打来；
+    /// 3. 顶面：左右各收窄 sideInset 后覆盖其上，露出的边缘即斜壁。
+    private var keycapShell: some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(sideWallGradient)
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(sideWallDirectionalLight)
+                )
+                .frame(height: height + wallDepth)
+
+            topFaceLayer
+                .padding(.horizontal, sideInset)
+                .frame(height: height)
+        }
+    }
+
+    /// 侧壁的纵向明暗：上沿接近顶面、越往下越暗，最后半段（前壁）压到最深
+    private var sideWallGradient: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: wallBaseColor.mixed(with: .white, ratio: 0.08).color, location: 0.0),
+                .init(color: wallBaseColor.color, location: 0.86),
+                .init(color: wallBaseColor.mixed(with: .black, ratio: 0.30).color, location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// 侧壁的横向方向光：左侧受光提亮、右侧入暗，与分层投影的偏移方向保持一致
+    private var sideWallDirectionalLight: LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: Color.white.opacity(palette.isLightSurface ? 0.10 : 0.09), location: 0.0),
+                .init(color: .clear, location: 0.30),
+                .init(color: Color.black.opacity(palette.isLightSurface ? 0.11 : 0.18), location: 1.0)
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    /// 顶面：材质底色 + 碟面光影 + 前壁折角 + 倒角描边
+    private var topFaceLayer: some View {
+        KeycapFaceBackground(style: style, palette: palette)
+            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
+            .overlay(concaveDishOverlay)
+            .overlay(frontEdgeCrease, alignment: .bottom)
+            .overlay(borderHighlight)
+    }
+
     // MARK: - 拟物顶面微弧碟面层（Concave Dish Overlay）
 
     @ViewBuilder
@@ -139,7 +216,7 @@ public struct KeycapItemView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
 
                 // 左上角柔和镜面反射
                 RadialGradient(
@@ -151,7 +228,7 @@ public struct KeycapItemView: View {
                     startRadius: 0,
                     endRadius: round(height * 0.62)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
 
                 // 中央内凹碟面光影
                 RadialGradient(
@@ -163,7 +240,7 @@ public struct KeycapItemView: View {
                     startRadius: 2,
                     endRadius: round(height * 0.52)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
             }
 
         case .frosted:
@@ -174,10 +251,10 @@ public struct KeycapItemView: View {
                     endPoint: .bottom
                 )
                 // 玻璃边缘一圈极细的内反射，避免整块毛玻璃失去层次
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.8)
             }
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
 
         case .aurora:
             RadialGradient(
@@ -189,20 +266,31 @@ public struct KeycapItemView: View {
                 startRadius: 2,
                 endRadius: round(height * 0.78)
             )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
         }
     }
 
-    // MARK: - 顶面材质背景
+    // MARK: - 顶面与前壁的交界折角（Crease）
 
-    private var faceBackgroundLayer: some View {
-        KeycapFaceBackground(style: style, palette: palette)
+    /// 顶面下沿向内压暗，与下方前壁的暗部相接，
+    /// 形成「脸 → 壁」的真实转折；没有这道折角，顶面会重新读成一块平面
+    private var frontEdgeCrease: some View {
+        LinearGradient(
+            colors: [
+                Color.clear,
+                Color.black.opacity(palette.isLightSurface ? 0.10 : 0.20)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: max(4, round(height * 0.11)))
+        .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
     }
 
     // MARK: - 边缘微倒角物理高光（Chamfer Border Highlight）
 
     private var borderHighlight: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous)
             .strokeBorder(borderStyle.strokeGradient(for: palette), lineWidth: 1.2)
     }
 }

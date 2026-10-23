@@ -155,10 +155,20 @@ public struct KeyRepeatBadgeView: View {
 
     private var badgeSurface: some View {
         ZStack {
-            // 侧面下沉厚度，与键帽保持一致的立体关系
+            // 侧面下沉厚度：与键帽同源的纵向渐变（上浅下深），
+            // 使角标读作「一块小键帽」而不是贴在键帽上的贴纸
             Capsule()
-                .fill(palette.extrusion.color)
-                .offset(y: 1.2)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            palette.extrusion.mixed(with: .white, ratio: 0.08).color,
+                            palette.extrusion.mixed(with: .black, ratio: 0.30).color
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .offset(y: 1.5)
 
             // 顶面底色：直接复用键帽材质背景
             KeycapFaceBackground(style: style, palette: palette)
