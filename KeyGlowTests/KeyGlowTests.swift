@@ -57,6 +57,69 @@ final class KeyGlowTests: XCTestCase {
         XCTAssertEqual(KeycapTheme.theme(id: KeycapTheme.neon.id).id, KeycapTheme.neon.id)
     }
 
+    /// 0.12 的主题 id 被 0.13 的设计命名取代，老用户升级后必须停留在同一套配色上
+    func testLegacyThemeIDsMigrateToRedesignedColorways() {
+        let legacyMap: [String: String] = [
+            "graphite": KeycapTheme.obsidian.id,
+            "paper": KeycapTheme.latte.id,
+            "ocean": KeycapTheme.glacier.id,
+            "sunset": KeycapTheme.sakura.id,
+            "terminal": KeycapTheme.phosphor.id,
+            "neon": KeycapTheme.neon.id
+        ]
+
+        for (legacy, expected) in legacyMap {
+            XCTAssertEqual(KeycapTheme.resolvedID(legacy), expected, "旧 id \(legacy) 未迁移到新配色")
+            XCTAssertEqual(KeycapTheme.theme(id: legacy).id, expected, "按旧 id 查找应命中新配色")
+        }
+
+        // 未知 id 与空串一律回退默认主题
+        XCTAssertEqual(KeycapTheme.resolvedID("legacy-theme-that-does-not-exist"), KeycapTheme.defaultTheme.id)
+        XCTAssertEqual(KeycapTheme.resolvedID(""), KeycapTheme.defaultTheme.id)
+        // 新 id 必须原样返回
+        XCTAssertEqual(KeycapTheme.resolvedID(KeycapTheme.sakura.id), KeycapTheme.sakura.id)
+    }
+
+    /// 0.13 的设计前提：四档颜色是四个光位，任一档都不能与另一档糊在一起，
+    /// 且结构键（Return / Tab / 方向键）必须与字母键拉开明度台阶，否则组合键读不出三段结构。
+    func testColorRolesFormDistinctValuePlanes() {
+        for theme in KeycapTheme.all {
+            for scheme in [ColorScheme.light, .dark] {
+                let colors = theme.colors(for: scheme)
+                let label = "\(theme.name) / \(scheme == .dark ? "夜晚" : "白天")"
+
+                // 结构层与字母键的明度台阶
+                XCTAssertGreaterThanOrEqual(
+                    colors.regular.midTone.contrastRatio(with: colors.special.midTone), 1.28,
+                    "\(label) 的功能键与字母键明度过于接近，结构层次读不出来"
+                )
+
+                // 四档两两之间必须可分辨：要么明度差够，要么饱和度差够
+                let palettes = colors.allPalettes
+                for i in palettes.indices {
+                    for j in palettes.indices where j > i {
+                        let ratio = palettes[i].midTone.contrastRatio(with: palettes[j].midTone)
+                        let chromaGap = abs(palettes[i].accent.chroma - palettes[j].accent.chroma)
+                        XCTAssertTrue(
+                            ratio >= 1.25 || chromaGap >= 0.08,
+                            "\(label) 第 \(i) 档与第 \(j) 档在明度和饱和度上都过于接近，视觉上无法区分"
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// 色卡带按「底色 → 结构 → 强调 → 英雄键」排列，顺序不能随实现漂移
+    func testColorwayHierarchyOrder() {
+        let colors = KeycapTheme.obsidian.colors(for: .light)
+        XCTAssertEqual(colors.hierarchy.count, 4)
+        XCTAssertEqual(colors.hierarchy[0].accent, colors.regular.accent)
+        XCTAssertEqual(colors.hierarchy[1].accent, colors.special.accent)
+        XCTAssertEqual(colors.hierarchy[2].accent, colors.modifier.accent)
+        XCTAssertEqual(colors.hierarchy[3].accent, colors.escape.accent)
+    }
+
     func testThemeSwitchesBetweenDayAndNight() {
         for theme in KeycapTheme.all {
             let light = theme.colors(for: .light)
@@ -506,7 +569,7 @@ final class KeyGlowTests: XCTestCase {
         defer { restoreSettings() }
 
         let settings = AppSettings.shared
-        settings.themeID = KeycapTheme.ocean.id
+        settings.themeID = KeycapTheme.glacier.id
         settings.appearanceMode = .dark
         settings.keycapStyle = .frosted
         settings.maxVisibleKeys = 4
@@ -523,7 +586,7 @@ final class KeyGlowTests: XCTestCase {
         settings.resetToDefaults()
         settings.apply(decoded)
 
-        XCTAssertEqual(settings.themeID, KeycapTheme.ocean.id)
+        XCTAssertEqual(settings.themeID, KeycapTheme.glacier.id)
         XCTAssertEqual(settings.appearanceMode, .dark)
         XCTAssertEqual(settings.keycapStyle, .frosted)
         XCTAssertEqual(settings.maxVisibleKeys, 4)
@@ -570,7 +633,7 @@ final class KeyGlowTests: XCTestCase {
         XCTAssertGreaterThan(hosting.fittingSize.width, 0)
         XCTAssertGreaterThan(hosting.fittingSize.height, 0)
 
-        let palette = KeycapTheme.graphite.colors(for: .light).modifier
+        let palette = KeycapTheme.obsidian.colors(for: .light).modifier
         let item = KeycapItemView(
             style: .matte,
             content: .symbol(name: "command", fallbackText: "⌘"),
