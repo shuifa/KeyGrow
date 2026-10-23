@@ -252,9 +252,11 @@ public struct PreferencesView: View {
             }
         } label: {
             VStack(spacing: 8) {
+                // 用主题推荐的材质渲染缩略键帽：卡片预览即"点下去会得到什么"，
+                // 而不是全部套用当前材质导致六套主题看着只差颜色。
                 HStack(spacing: 4) {
                     KeycapItemView(
-                        style: settings.keycapStyle,
+                        style: theme.recommendedStyle,
                         content: .symbol(name: "command", fallbackText: "⌘"),
                         palette: colors.modifier,
                         borderStyle: theme.border,
@@ -262,7 +264,7 @@ public struct PreferencesView: View {
                         height: 32
                     )
                     KeycapItemView(
-                        style: settings.keycapStyle,
+                        style: theme.recommendedStyle,
                         content: .text("C"),
                         palette: colors.regular,
                         borderStyle: theme.border,
@@ -270,7 +272,7 @@ public struct PreferencesView: View {
                         height: 32
                     )
                     KeycapItemView(
-                        style: settings.keycapStyle,
+                        style: theme.recommendedStyle,
                         content: .text("esc"),
                         palette: colors.escape,
                         borderStyle: theme.border,
@@ -278,7 +280,7 @@ public struct PreferencesView: View {
                         height: 32
                     )
                     KeycapItemView(
-                        style: settings.keycapStyle,
+                        style: theme.recommendedStyle,
                         content: .symbol(name: "arrow.left", fallbackText: "←"),
                         palette: colors.special,
                         borderStyle: theme.border,
@@ -287,6 +289,12 @@ public struct PreferencesView: View {
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                // 昼夜双色卡带：无需切换外观模式，就能对比同一套主题在白天 / 夜晚下的完整明度骨架
+                VStack(spacing: 3) {
+                    colorwayBand(theme.colors(for: .light), tag: "日")
+                    colorwayBand(theme.colors(for: .dark), tag: "夜")
+                }
 
                 HStack(spacing: 6) {
                     Text(theme.name)
@@ -320,6 +328,25 @@ public struct PreferencesView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help("\(theme.name) · \(theme.subtitle)")
+    }
+
+    /// 单条色卡带：底色 → 结构 → 强调 → 英雄键 四个色块，代表该外观档的四档取色
+    private func colorwayBand(_ colors: ThemeColorSet, tag: String) -> some View {
+        HStack(spacing: 6) {
+            Text(tag)
+                .font(.system(size: 8, weight: .medium, design: .rounded))
+                .foregroundColor(.secondary.opacity(0.75))
+                .frame(width: 9, alignment: .leading)
+
+            HStack(spacing: 2) {
+                ForEach(Array(colors.hierarchy.enumerated()), id: \.offset) { _, palette in
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(palette.midTone.color)
+                        .frame(height: 5)
+                }
+            }
+        }
     }
 
     private var appearanceModeSection: some View {

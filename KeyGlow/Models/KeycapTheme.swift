@@ -5,6 +5,17 @@
 //  内置键帽主题系统：一套主题同时提供「白天 / 夜晚」两套完整配色，
 //  并分别为普通键、修饰键、特殊功能键、Esc 键指定独立色板。
 //
+//  配色设计系统（0.13 重构）：
+//  旧版六套主题共用同一公式——「浅灰字母键 + 一个饱和修饰键 + 一个暖色 Esc」，
+//  彼此只差一个色相，因此观感高度同质化。新版把四档颜色升级为**四个光位**：
+//    1. 字母键 regular  —— 底色：低饱和，承载整块键盘的"纸面"；
+//    2. 结构键 special  —— 暗部：Return / Tab / 方向键组成结构层，与字母键拉开明度台阶，
+//       让「组合键」在录屏里第一眼就能被读成"修饰 + 结构 + 主体"三段；
+//    3. 修饰键 modifier —— 强调音：唯一的高饱和色相，负责主题辨识度；
+//    4. Esc escape      —— 英雄键：与修饰键不同色系，整块键盘唯一的高对比焦点。
+//  每套主题的明度骨架刻意不同（如「拿铁」四档单调下沉，「曜石」则是字母键极亮、
+//  结构键压到近黑的反差骨架），因此六套主题不再是同一块键盘换色，而是六种键盘。
+//
 
 import AppKit
 import SwiftUI
@@ -313,6 +324,12 @@ public struct ThemeColorSet: Sendable, Equatable {
     public var allPalettes: [KeycapPalette] {
         [regular, modifier, special, escape]
     }
+
+    /// 按视觉层级排列的四档色板：底色（字母）→ 结构（功能键）→ 强调（修饰键）→ 英雄键（Esc）。
+    /// 设置面板的色卡带按这个顺序排布，读者一眼就能顺着读完整套配色的明度骨架。
+    public var hierarchy: [KeycapPalette] {
+        [regular, special, modifier, escape]
+    }
 }
 
 // MARK: - 主题
@@ -345,141 +362,166 @@ public struct KeycapTheme: Identifiable, Sendable, Equatable {
 // MARK: - 内置主题清单
 
 extension KeycapTheme {
-    /// 石墨：中性灰 + 深蓝修饰键 + 珊瑚红 Esc，最克制的一套，作为出厂默认
-    public static let graphite = KeycapTheme(
-        id: "graphite",
-        name: "石墨",
-        subtitle: "中性灰键帽 · 深蓝修饰 · 珊瑚 Esc",
+    /// 曜石 · 高反差黑金：字母键温白，结构键压到近黑，修饰键石板蓝，Esc 熔金。
+    /// 四档明度是「极亮 → 极暗 → 中深 → 亮金」的反差骨架，录屏里层次最锐利，作为出厂默认。
+    public static let obsidian = KeycapTheme(
+        id: "obsidian",
+        name: "曜石",
+        subtitle: "暖白字母 · 曜石黑结构 · 熔金 Esc",
         light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xE9E9EC),
-            modifier: KeyColorRGB(hex: 0x4C566A),
-            special: KeyColorRGB(hex: 0xC3C8D0),
-            escape: KeyColorRGB(hex: 0xD9584C)
+            regular: KeyColorRGB(hex: 0xF0EDE7),
+            modifier: KeyColorRGB(hex: 0x3A4C66),
+            special: KeyColorRGB(hex: 0x24262B),
+            escape: KeyColorRGB(hex: 0xC8952B)
         ),
         dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x2B2F36),
-            modifier: KeyColorRGB(hex: 0x5E6E8A),
-            special: KeyColorRGB(hex: 0x373B43),
-            escape: KeyColorRGB(hex: 0xD65C50)
-        ),
-        recommendedStyle: .matte,
-        border: .adaptive
-    )
-
-    /// 纸感：暖米白 + 雾蓝 + 砖红，适合浅色文档与演示
-    public static let paper = KeycapTheme(
-        id: "paper",
-        name: "纸感",
-        subtitle: "复古米白 · 雾蓝修饰 · 砖红 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xF3EDE1),
-            modifier: KeyColorRGB(hex: 0x7FA3D4),
-            special: KeyColorRGB(hex: 0xDCD3C3),
-            escape: KeyColorRGB(hex: 0xC25C54)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x35322C),
-            modifier: KeyColorRGB(hex: 0x6E8FBE),
-            special: KeyColorRGB(hex: 0x474440),
-            escape: KeyColorRGB(hex: 0xC4634F)
-        ),
-        recommendedStyle: .matte,
-        border: .softDark
-    )
-
-    /// 深海：冷白 + 海蓝 + 落日橙，冷色系里最"科技感"的一套
-    public static let ocean = KeycapTheme(
-        id: "ocean",
-        name: "深海",
-        subtitle: "冷雾白 · 海蓝修饰 · 落日橙 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xE7EEF3),
-            modifier: KeyColorRGB(hex: 0x2E7BB5),
-            special: KeyColorRGB(hex: 0xB8CBD8),
-            escape: KeyColorRGB(hex: 0xE08A3C)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x1F2A33),
-            modifier: KeyColorRGB(hex: 0x3F93CF),
-            special: KeyColorRGB(hex: 0x2E3F4B),
-            escape: KeyColorRGB(hex: 0xE59B4F)
-        ),
-        recommendedStyle: .frosted,
-        border: .adaptive
-    )
-
-    /// 日落：暖陶土 + 梅红，偏纪实/生活方式的内容更搭
-    public static let sunset = KeycapTheme(
-        id: "sunset",
-        name: "日落",
-        subtitle: "暖砂白 · 陶土橙修饰 · 梅红 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xF6EDE5),
-            modifier: KeyColorRGB(hex: 0xD2704A),
-            special: KeyColorRGB(hex: 0xE5D0BF),
-            escape: KeyColorRGB(hex: 0xA9485F)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x332722),
-            modifier: KeyColorRGB(hex: 0xCE7A57),
-            special: KeyColorRGB(hex: 0x453730),
-            escape: KeyColorRGB(hex: 0xBE5C70)
-        ),
-        recommendedStyle: .matte,
-        border: .adaptive
-    )
-
-    /// 霓虹：电紫 + 品红，配极光材质做赛博风演示
-    public static let neon = KeycapTheme(
-        id: "neon",
-        name: "霓虹",
-        subtitle: "冷灰白 · 电紫修饰 · 品红 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xEFF0F5),
-            modifier: KeyColorRGB(hex: 0x6A5AE0),
-            special: KeyColorRGB(hex: 0xC8CBD9),
-            escape: KeyColorRGB(hex: 0xD9468C)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x1B1D24),
-            modifier: KeyColorRGB(hex: 0x7C6BFF),
-            special: KeyColorRGB(hex: 0x2A2D39),
-            escape: KeyColorRGB(hex: 0xF0579C)
-        ),
-        recommendedStyle: .matte,
-        border: .neon
-    )
-
-    /// 终端：灰绿 + 荧光绿 + 琥珀，终端/命令行教学场景
-    public static let terminal = KeycapTheme(
-        id: "terminal",
-        name: "终端",
-        subtitle: "灰绿白 · 荧光绿修饰 · 琥珀 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xE8EDE5),
-            modifier: KeyColorRGB(hex: 0x2F7D4F),
-            special: KeyColorRGB(hex: 0xC9D2C5),
-            escape: KeyColorRGB(hex: 0xB0741E)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x1E2420),
-            modifier: KeyColorRGB(hex: 0x45C46D),
-            special: KeyColorRGB(hex: 0x2B332D),
-            escape: KeyColorRGB(hex: 0xD9A13B)
+            regular: KeyColorRGB(hex: 0x23262B),
+            modifier: KeyColorRGB(hex: 0x4C6485),
+            special: KeyColorRGB(hex: 0x383C43),
+            escape: KeyColorRGB(hex: 0xDFAE45)
         ),
         recommendedStyle: .matte,
         border: .softLight
     )
 
+    /// 拿铁 · 复古暖调：奶油白字母逐级下沉到灰米结构、焦糖修饰，Esc 用深樱桃红压住重心，
+    /// 四档明度单调递减，是最"有纸感"、最不刺眼的一套，适合浅色文档与长时间演示。
+    public static let latte = KeycapTheme(
+        id: "latte",
+        name: "拿铁",
+        subtitle: "奶油白字母 · 焦糖修饰 · 樱桃红 Esc",
+        light: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0xF6EFDD),
+            modifier: KeyColorRGB(hex: 0x8F6A44),
+            special: KeyColorRGB(hex: 0xCDC0A6),
+            escape: KeyColorRGB(hex: 0x8E2A26)
+        ),
+        dark: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0x2A2620),
+            modifier: KeyColorRGB(hex: 0x8C6C46),
+            special: KeyColorRGB(hex: 0x453D32),
+            escape: KeyColorRGB(hex: 0xC8543F)
+        ),
+        recommendedStyle: .matte,
+        border: .softDark
+    )
+
+    /// 冰川 · 冷透材料：冰蓝白字母配深青结构，海水蓝修饰，Esc 用信号橙做冷色里的唯一暖点。
+    /// 配合磨砂玻璃材质，是六套里最"轻"的一套。
+    public static let glacier = KeycapTheme(
+        id: "glacier",
+        name: "冰川",
+        subtitle: "冰蓝白字母 · 海水蓝修饰 · 信号橙 Esc",
+        light: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0xE6EFF4),
+            modifier: KeyColorRGB(hex: 0x2C7FA6),
+            special: KeyColorRGB(hex: 0x1C3B46),
+            escape: KeyColorRGB(hex: 0xD96A34)
+        ),
+        dark: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0x18232A),
+            modifier: KeyColorRGB(hex: 0x3E9BC4),
+            special: KeyColorRGB(hex: 0x2A3D46),
+            escape: KeyColorRGB(hex: 0xE5854A)
+        ),
+        recommendedStyle: .frosted,
+        border: .adaptive
+    )
+
+    /// 樱 · 柔色反差：藕粉白字母 + 雾紫结构，修饰键走梅子紫，Esc 反过来用深墨蓝，
+    /// 在整块柔和粉调里落下一笔硬朗的冷色，温柔但不软弱。
+    public static let sakura = KeycapTheme(
+        id: "sakura",
+        name: "樱",
+        subtitle: "藕粉白字母 · 梅子紫修饰 · 墨蓝 Esc",
+        light: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0xF4E6E6),
+            modifier: KeyColorRGB(hex: 0x8A5878),
+            special: KeyColorRGB(hex: 0xB9A2B4),
+            escape: KeyColorRGB(hex: 0x2F3A55)
+        ),
+        dark: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0x2C2429),
+            modifier: KeyColorRGB(hex: 0xB07C9C),
+            special: KeyColorRGB(hex: 0x453A41),
+            escape: KeyColorRGB(hex: 0x9BB2DE)
+        ),
+        recommendedStyle: .frosted,
+        border: .adaptive
+    )
+
+    /// 磷光 · 终端感：灰绿白字母，松墨绿压暗结构层，修饰键用荧光绿，Esc 转琥珀，
+    /// 是命令行教学与终端录屏的原生配色。
+    public static let phosphor = KeycapTheme(
+        id: "phosphor",
+        name: "磷光",
+        subtitle: "灰绿白字母 · 荧光绿修饰 · 琥珀 Esc",
+        light: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0xE4EBE1),
+            modifier: KeyColorRGB(hex: 0x2A8A5A),
+            special: KeyColorRGB(hex: 0x233029),
+            escape: KeyColorRGB(hex: 0xC2841F)
+        ),
+        dark: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0x171C19),
+            modifier: KeyColorRGB(hex: 0x46C878),
+            special: KeyColorRGB(hex: 0x2C3730),
+            escape: KeyColorRGB(hex: 0xD9A63C)
+        ),
+        recommendedStyle: .matte,
+        border: .softLight
+    )
+
+    /// 霓虹 · 赛博：冷紫白字母 + 夜紫结构，电紫修饰配荧光粉 Esc，
+    /// 配合极光染色材质与霓虹描边，是唯一一套带发光骨架的配色。
+    public static let neon = KeycapTheme(
+        id: "neon",
+        name: "霓虹",
+        subtitle: "冷紫白字母 · 电紫修饰 · 荧光粉 Esc",
+        light: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0xEAE9F4),
+            modifier: KeyColorRGB(hex: 0x6B5AE0),
+            special: KeyColorRGB(hex: 0x211F33),
+            escape: KeyColorRGB(hex: 0xDE3F86)
+        ),
+        dark: ThemeColorSet(
+            regular: KeyColorRGB(hex: 0x161521),
+            modifier: KeyColorRGB(hex: 0x8B7BFF),
+            special: KeyColorRGB(hex: 0x2B2940),
+            escape: KeyColorRGB(hex: 0xFF5E9C)
+        ),
+        recommendedStyle: .aurora,
+        border: .neon
+    )
+
     /// 全部内置主题（顺序即设置面板展示顺序）
-    public static let all: [KeycapTheme] = [graphite, paper, ocean, sunset, neon, terminal]
+    public static let all: [KeycapTheme] = [obsidian, latte, glacier, sakura, phosphor, neon]
 
     /// 出厂默认主题
-    public static let defaultTheme: KeycapTheme = graphite
+    public static let defaultTheme: KeycapTheme = obsidian
+
+    /// 0.12 及以前的中性命名 id → 0.13 的设计命名 id。
+    /// 保留这张表，老用户升级后仍停在同一套配色的设计槽位上，而不是被重置回默认主题。
+    private static let legacyIDMap: [String: String] = [
+        "graphite": "obsidian",
+        "paper": "latte",
+        "ocean": "glacier",
+        "sunset": "sakura",
+        "terminal": "phosphor"
+    ]
+
+    /// 把持久化/导入的主题 id 解析成当前目录下真实存在的 id（含旧 id 迁移）
+    public static func resolvedID(_ stored: String) -> String {
+        if all.contains(where: { $0.id == stored }) { return stored }
+        if let mapped = legacyIDMap[stored], all.contains(where: { $0.id == mapped }) { return mapped }
+        return defaultTheme.id
+    }
 
     /// 按 id 查找，找不到时回退默认主题（防止旧配置残留导致空白）
     public static func theme(id: String) -> KeycapTheme {
-        all.first(where: { $0.id == id }) ?? defaultTheme
+        all.first(where: { $0.id == id })
+            ?? all.first(where: { $0.id == legacyIDMap[id] })
+            ?? defaultTheme
     }
 }
 

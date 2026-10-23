@@ -167,10 +167,10 @@ public final class AppSettings: ObservableObject {
             self.anchor = Defaults.anchor
         }
 
-        // 主题 id：旧版本没有该 key，或存的是已下线的主题，一律回退默认主题
-        if let storedTheme = defaults.string(forKey: Keys.themeID),
-           KeycapTheme.all.contains(where: { $0.id == storedTheme }) {
-            self.themeID = storedTheme
+        // 主题 id：旧版本没有该 key、存的是已下线的主题，或存的是 0.12 的旧 id，
+        // 统一交给 `resolvedID` 解析（含旧 id 迁移），解析不了才回退默认主题
+        if let storedTheme = defaults.string(forKey: Keys.themeID) {
+            self.themeID = KeycapTheme.resolvedID(storedTheme)
         } else {
             self.themeID = Defaults.themeID
         }
@@ -297,9 +297,7 @@ public final class AppSettings: ObservableObject {
 
     /// 应用外部导入的配置（字段缺失时保留当前值）
     public func apply(_ snapshot: SettingsSnapshot) {
-        if let id = snapshot.themeID, KeycapTheme.all.contains(where: { $0.id == id }) {
-            themeID = id
-        }
+        if let id = snapshot.themeID { themeID = KeycapTheme.resolvedID(id) }
         if let mode = snapshot.appearanceMode { appearanceMode = mode }
         if let style = snapshot.keycapStyle { keycapStyle = style }
         if let mode = snapshot.displayMode { displayMode = mode }
