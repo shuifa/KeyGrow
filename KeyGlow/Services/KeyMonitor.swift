@@ -14,7 +14,7 @@ import SwiftUI
 public final class KeyMonitor: ObservableObject {
     public static let shared = KeyMonitor()
 
-    /// 当前处于展示生命周期内的连续按键队列（最多 2 个，同时按多个算一个）
+    /// 当前处于展示生命周期内的连续按键队列（容量由 `AppSettings.maxVisibleKeys` 控制，同时按多个算一个）
     @Published public private(set) var activeStrokes: [KeyStroke] = []
 
     /// 最新按下的按键（兼容性快捷访问）
@@ -97,10 +97,15 @@ public final class KeyMonitor: ObservableObject {
         didReleaseModifiers()
     }
 
-    // MARK: - 按键派发（队列最大 3 个，先进先出）
+    // MARK: - 按键派发（队列容量可配置，先进先出）
 
     /// 标记当前最新展示的按键是否是“尚未松开的纯修饰键”
     private var isCurrentStrokeActiveModifier: Bool = false
+
+    /// 当前同屏容量：跟随用户设置（1 ~ 4），最小值为 1，避免配置异常时清空队列
+    private var currentCapacity: Int {
+        max(1, AppSettings.shared.maxVisibleKeys)
+    }
 
     private func didReleaseModifiers() {
         self.isCurrentStrokeActiveModifier = false
@@ -137,9 +142,10 @@ public final class KeyMonitor: ObservableObject {
                 self.activeStrokes[self.activeStrokes.count - 1].repeatCount &+= 1
                 target = self.activeStrokes[self.activeStrokes.count - 1]
             } else {
-                // 普通追加（连续按键队列最多保留 2 个，同时按多个算一个；溢出时移除最左侧最早按下的元素）
-                if self.activeStrokes.count >= 2 {
-                    let removed = self.activeStrokes.removeFirst()
+                // 普通追加（同时按多个算一个；超出容量时移除最左侧最早按下的元素）
+                let capacity = self.currentCapacity
+                while self.activeStrokes.count >= capacity, let removed = self.activeStrokes.first {
+                    self.activeStrokes.removeFirst()
                     self.removalTasks[removed.id]?.cancel()
                     self.removalTasks.removeValue(forKey: removed.id)
                     self.punchCounters.removeValue(forKey: removed.id)
@@ -481,11 +487,13 @@ private func eventTapCallback(
     refcon: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
     guard let refcon = refcon else {
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 
     let worker = Unmanaged<KeyMonitorWorker>.fromOpaque(refcon).takeUnretainedValue()
     worker.handleEvent(proxy: proxy, type: type, event: event)
 
-    return Unmanaged.passRetained(event)
+    // listenOnly 事件回调必须返回「未额外持有」的事件对象：
+    // 早期版本使用 passRetained 会让每个按键事件多一次 retain，长时间后台运行会持续泄漏。
+    return Unmanaged.passUnretained(event)
 }

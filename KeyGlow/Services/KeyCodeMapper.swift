@@ -31,10 +31,12 @@ public struct KeyCodeMapper {
         // 从而正确展示如 ⌃C、⌥A、⌥E 等快捷键，而非 Key_0 或 Key_14。
         if isShortcutModifierActive {
             if let display = translateWithCarbonTIS(keyCode: keyCode) ?? ansiKeyMap[keyCode] {
+                // 快捷键组合按 macOS 菜单惯例统一大写（⌘C 而非 ⌘c）
+                let shortcutText = display.uppercased()
                 return KeyInfo(
-                    content: .text(display),
+                    content: .text(shortcutText),
                     isSpecialFunctionKey: false,
-                    identifier: display.lowercased()
+                    identifier: shortcutText.lowercased()
                 )
             }
         }
@@ -51,7 +53,8 @@ public struct KeyCodeMapper {
             // 过滤不可打印字符或控制字符
             let trimmed = rawStr.trimmingCharacters(in: .controlCharacters)
             if !trimmed.isEmpty {
-                let display = trimmed.uppercased()
+                // 保留用户实际输入的大小写：单独输入 a 与 ⇧A 在录屏里必须可区分
+                let display = trimmed
                 return KeyInfo(
                     content: .text(display),
                     isSpecialFunctionKey: false,
@@ -117,7 +120,8 @@ public struct KeyCodeMapper {
         if result == noErr && length > 0 {
             let str = String(utf16CodeUnits: chars, count: length).trimmingCharacters(in: .controlCharacters)
             if !str.isEmpty {
-                return str.uppercased()
+                // 这里只负责「取到基础字符」，大小写交由调用方按场景决定（快捷键大写、普通输入保留原样）
+                return str
             }
         }
 
@@ -151,12 +155,13 @@ public struct KeyCodeMapper {
 
     private static let specialKeyMap: [CGKeyCode: KeyInfo] = [
         // 编辑与排版
-        36: KeyInfo(content: .symbol(name: "return", fallbackText: "Return"), isSpecialFunctionKey: true, identifier: "return"),
-        48: KeyInfo(content: .symbol(name: "arrow.right.to.line", fallbackText: "Tab"), isSpecialFunctionKey: true, identifier: "tab"),
-        49: KeyInfo(content: .symbol(name: "space", fallbackText: "Space"), isSpecialFunctionKey: true, identifier: "space"),
-        51: KeyInfo(content: .symbol(name: "delete.left", fallbackText: "Delete"), isSpecialFunctionKey: true, identifier: "delete"),
-        53: KeyInfo(content: .symbol(name: "escape", fallbackText: "Esc"), isSpecialFunctionKey: true, identifier: "esc"),
-        117: KeyInfo(content: .symbol(name: "delete.forward", fallbackText: "Del"), isSpecialFunctionKey: true, identifier: "forward_delete"),
+        // 特殊键一律优先文字：录屏时 "esc" / "tab" / "return" 的可读性远高于抽象图标
+        36: KeyInfo(content: .text("return"), isSpecialFunctionKey: true, identifier: "return"),
+        48: KeyInfo(content: .text("tab"), isSpecialFunctionKey: true, identifier: "tab"),
+        49: KeyInfo(content: .text("space"), isSpecialFunctionKey: true, identifier: "space"),
+        51: KeyInfo(content: .text("delete"), isSpecialFunctionKey: true, identifier: "delete"),
+        53: KeyInfo(content: .text("esc"), isSpecialFunctionKey: true, identifier: "esc"),
+        117: KeyInfo(content: .text("del"), isSpecialFunctionKey: true, identifier: "forward_delete"),
 
         // 方向键
         123: KeyInfo(content: .symbol(name: "arrow.left", fallbackText: "←"), isSpecialFunctionKey: true, identifier: "left_arrow"),
@@ -216,7 +221,7 @@ public struct KeyCodeMapper {
 
         // 辅助与小键盘按键
         71:  KeyInfo(content: .symbol(name: "clear", fallbackText: "Clear"), isSpecialFunctionKey: true, identifier: "clear"),
-        76:  KeyInfo(content: .symbol(name: "return", fallbackText: "Enter"), isSpecialFunctionKey: true, identifier: "enter"),
+        76:  KeyInfo(content: .text("enter"), isSpecialFunctionKey: true, identifier: "enter"),
         114: KeyInfo(content: .symbol(name: "questionmark.circle", fallbackText: "Help"), isSpecialFunctionKey: true, identifier: "help"),
     ]
 }

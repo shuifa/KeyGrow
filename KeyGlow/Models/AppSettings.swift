@@ -7,6 +7,9 @@ import SwiftUI
 import Combine
 
 /// 全局应用配置与状态管理
+///
+/// 配色体系自 0.12 起改为「主题制」：不再让用户逐类指定键帽颜色，
+/// 而是从内置主题中选择一套（每套主题自带白天 / 夜晚两套完整配色）。
 @MainActor
 public final class AppSettings: ObservableObject {
     public static let shared = AppSettings()
@@ -20,106 +23,126 @@ public final class AppSettings: ObservableObject {
         static let displayDuration = "keyglow.displayDuration"
         static let sizeScale = "keyglow.sizeScale"
         static let showRepeatCount = "keyglow.showRepeatCount"
-        static let specialKeyColor = "keyglow.specialKeyColor"
-        static let keyColor = "keyglow.keyColor"
-        static let modifierColor = "keyglow.modifierColor"
-        static let escapeColor = "keyglow.escapeColor"
-        static let borderColor = "keyglow.borderColor"
         static let keyOpacity = "keyglow.keyOpacity"
         static let verticalOffset = "keyglow.verticalOffset"
+        static let themeID = "keyglow.themeID"
+        static let appearanceMode = "keyglow.appearanceMode"
+        static let maxVisibleKeys = "keyglow.maxVisibleKeys"
+        static let showKeycapTray = "keyglow.showKeycapTray"
+        static let schemaVersion = "keyglow.schemaVersion"
+
+        /// 0.11 及以前遗留的逐类配色 key，升级时一次性清除
+        static let legacyColorKeys = [
+            "keyglow.specialKeyColor",
+            "keyglow.keyColor",
+            "keyglow.modifierColor",
+            "keyglow.escapeColor",
+            "keyglow.borderColor"
+        ]
     }
+
+    /// 当前配置结构版本，用于后续增量迁移
+    private static let currentSchemaVersion = 2
 
     // MARK: - Published Properties
 
     @Published public var isEnabled: Bool {
-        didSet { UserDefaults.standard.set(isEnabled, forKey: Keys.isEnabled) }
+        didSet { schedulePersist() }
     }
 
     @Published public var displayMode: DisplayMode {
-        didSet { UserDefaults.standard.set(displayMode.rawValue, forKey: Keys.displayMode) }
+        didSet { schedulePersist() }
     }
 
+    /// 键帽材质（与主题解耦：选主题会给推荐材质，用户仍可单独改）
     @Published public var keycapStyle: KeycapStyle {
-        didSet { UserDefaults.standard.set(keycapStyle.rawValue, forKey: Keys.keycapStyle) }
+        didSet { schedulePersist() }
     }
 
     @Published public var anchor: DisplayAnchor {
-        didSet { UserDefaults.standard.set(anchor.rawValue, forKey: Keys.anchor) }
+        didSet { schedulePersist() }
     }
 
-    @Published public var specialKeyColor: SpecialKeyColor {
-        didSet {
-            UserDefaults.standard.set(specialKeyColor.rawValue, forKey: Keys.specialKeyColor)
-        }
+    /// 当前主题 id
+    @Published public var themeID: String {
+        didSet { schedulePersist() }
     }
 
-    /// 普通字符/字母按键颜色（Key Color，参考 Keystroke Pro，默认 1984s Beige 复古米白）
-    @Published public var keyColor: KeyColorOption {
-        didSet { UserDefaults.standard.set(keyColor.rawValue, forKey: Keys.keyColor) }
+    /// 外观模式：跟随系统 / 固定浅色 / 固定深色
+    @Published public var appearanceMode: ThemeAppearanceMode {
+        didSet { schedulePersist() }
     }
 
-    /// 修饰键颜色（Modifier Color，如 ⌘ ⌥ ⌃ ⇧，默认 Azure Blue 蔚蓝）
-    @Published public var modifierColor: KeyColorOption {
-        didSet { UserDefaults.standard.set(modifierColor.rawValue, forKey: Keys.modifierColor) }
-    }
-
-    /// Escape 与特殊功能键颜色（Escape Color，默认 Mamba Green 曼巴绿）
-    @Published public var escapeColor: KeyColorOption {
-        didSet { UserDefaults.standard.set(escapeColor.rawValue, forKey: Keys.escapeColor) }
-    }
-
-    /// 边框高光与倒角轮廓描边颜色（Border Color，默认 Space 深空黑曜）
-    @Published public var borderColor: BorderColorOption {
-        didSet { UserDefaults.standard.set(borderColor.rawValue, forKey: Keys.borderColor) }
-    }
-
-    /// 键帽不透明度（Opacity，范围 0.5 ~ 1.0，默认 1.0 实体拟物）
+    /// 键帽不透明度（0.5 ~ 1.0）
     @Published public var keyOpacity: Double {
-        didSet { UserDefaults.standard.set(keyOpacity, forKey: Keys.keyOpacity) }
+        didSet { schedulePersist() }
     }
 
     @Published public var verticalOffset: Double {
-        didSet { UserDefaults.standard.set(verticalOffset, forKey: Keys.verticalOffset) }
+        didSet { schedulePersist() }
     }
 
     @Published public var displayDuration: Double {
-        didSet { UserDefaults.standard.set(displayDuration, forKey: Keys.displayDuration) }
+        didSet { schedulePersist() }
     }
 
     @Published public var sizeScale: Double {
-        didSet { UserDefaults.standard.set(sizeScale, forKey: Keys.sizeScale) }
+        didSet { schedulePersist() }
     }
 
     @Published public var showRepeatCount: Bool {
-        didSet { UserDefaults.standard.set(showRepeatCount, forKey: Keys.showRepeatCount) }
+        didSet { schedulePersist() }
     }
 
-    /// 辅助功能权限状态
+    /// 同屏最多保留的键帽数量（1 ~ 4）
+    @Published public var maxVisibleKeys: Int {
+        didSet {
+            let range = Self.Defaults.maxVisibleKeysRange
+            let clamped = min(max(maxVisibleKeys, range.lowerBound), range.upperBound)
+            if clamped != maxVisibleKeys {
+                maxVisibleKeys = clamped
+            }
+        }
+    }
+
+    /// 是否为键帽加一层半透明托盘，提升浅色桌面下的对比度
+    @Published public var showKeycapTray: Bool {
+        didSet { schedulePersist() }
+    }
+
+    /// 辅助功能权限状态（不持久化）
     @Published public var isAccessibilityGranted: Bool = false
 
-    // MARK: - 出厂默认值
+    // MARK: - 派生属性
+
+    /// 当前主题对象（id 无效时自动回退默认主题）
+    public var theme: KeycapTheme {
+        KeycapTheme.theme(id: themeID)
+    }
 
     /// 出厂默认配置（集中定义，避免初始化分支散落魔法值，也便于测试校验）
     public enum Defaults {
         public static let isEnabled = true
         public static let displayMode: DisplayMode = .allKeys
-        public static let keycapStyle: KeycapStyle = .classicDark
+        public static let keycapStyle: KeycapStyle = KeycapTheme.defaultTheme.recommendedStyle
         public static let anchor: DisplayAnchor = .bottomCenter
-        public static let keyColor: KeyColorOption = .beige1984
-        public static let modifierColor: KeyColorOption = .azureBlue
-        public static let escapeColor: KeyColorOption = .mambaGreen
-        public static let borderColor: BorderColorOption = .matching
+        public static let themeID = KeycapTheme.defaultTheme.id
+        public static let appearanceMode: ThemeAppearanceMode = .system
         public static let keyOpacity: Double = 1.0
         public static let displayDuration: Double = 1.5
         public static let verticalOffset: Double = 70.0
         public static let sizeScale: Double = 1.0
         public static let showRepeatCount = true
+        public static let maxVisibleKeys = 3
+        public static let maxVisibleKeysRange = 1...4
+        public static let showKeycapTray = false
     }
 
     // MARK: - Initialization
 
     private init() {
         let defaults = UserDefaults.standard
+        Self.migrateIfNeeded(defaults)
 
         self.isEnabled = defaults.object(forKey: Keys.isEnabled) != nil ? defaults.bool(forKey: Keys.isEnabled) : Defaults.isEnabled
 
@@ -127,12 +150,11 @@ public final class AppSettings: ObservableObject {
            let mode = DisplayMode(rawValue: modeRaw) {
             self.displayMode = mode
         } else {
-            // 默认采用全按键模式，确保打字及单字母输入直接可见且不漏键
             self.displayMode = Defaults.displayMode
         }
 
         if let styleRaw = defaults.string(forKey: Keys.keycapStyle),
-           let style = KeycapStyle(rawValue: styleRaw) {
+           let style = KeycapStyle.migrate(fromLegacy: styleRaw) {
             self.keycapStyle = style
         } else {
             self.keycapStyle = Defaults.keycapStyle
@@ -145,48 +167,23 @@ public final class AppSettings: ObservableObject {
             self.anchor = Defaults.anchor
         }
 
-        if let colorRaw = defaults.string(forKey: Keys.specialKeyColor),
-           let color = SpecialKeyColor(rawValue: colorRaw) {
-            self.specialKeyColor = color
+        // 主题 id：旧版本没有该 key，或存的是已下线的主题，一律回退默认主题
+        if let storedTheme = defaults.string(forKey: Keys.themeID),
+           KeycapTheme.all.contains(where: { $0.id == storedTheme }) {
+            self.themeID = storedTheme
         } else {
-            self.specialKeyColor = .blue
+            self.themeID = Defaults.themeID
         }
 
-        // 初始化 Key Color（默认 1984s Beige）
-        if let keyColorRaw = defaults.string(forKey: Keys.keyColor),
-           let opt = KeyColorOption(rawValue: keyColorRaw) {
-            self.keyColor = opt
+        if let appearanceRaw = defaults.string(forKey: Keys.appearanceMode),
+           let mode = ThemeAppearanceMode(rawValue: appearanceRaw) {
+            self.appearanceMode = mode
         } else {
-            self.keyColor = Defaults.keyColor
+            self.appearanceMode = Defaults.appearanceMode
         }
 
-        // 初始化 Modifier Color（默认 Azure Blue）
-        if let modColorRaw = defaults.string(forKey: Keys.modifierColor),
-           let opt = KeyColorOption(rawValue: modColorRaw) {
-            self.modifierColor = opt
-        } else {
-            self.modifierColor = Defaults.modifierColor
-        }
-
-        // 初始化 Escape Color（默认 Mamba Green）
-        if let escColorRaw = defaults.string(forKey: Keys.escapeColor),
-           let opt = KeyColorOption(rawValue: escColorRaw) {
-            self.escapeColor = opt
-        } else {
-            self.escapeColor = Defaults.escapeColor
-        }
-
-        // 初始化 Border Color（默认 Auto Matching：随键帽自适应微光，避免统一深色描边把键帽压暗）
-        if let borderRaw = defaults.string(forKey: Keys.borderColor),
-           let opt = BorderColorOption(rawValue: borderRaw) {
-            self.borderColor = opt
-        } else {
-            self.borderColor = Defaults.borderColor
-        }
-
-        // 初始化 Key Opacity（默认 1.0）
         let opacityVal = defaults.double(forKey: Keys.keyOpacity)
-        self.keyOpacity = opacityVal > 0 ? opacityVal : Defaults.keyOpacity
+        self.keyOpacity = opacityVal > 0 ? min(max(opacityVal, 0.5), 1.0) : Defaults.keyOpacity
 
         let duration = defaults.double(forKey: Keys.displayDuration)
         self.displayDuration = duration > 0 ? duration : Defaults.displayDuration
@@ -197,9 +194,127 @@ public final class AppSettings: ObservableObject {
         let scale = defaults.double(forKey: Keys.sizeScale)
         self.sizeScale = scale > 0 ? scale : Defaults.sizeScale
 
-        self.showRepeatCount = defaults.object(forKey: Keys.showRepeatCount) != nil ? defaults.bool(forKey: Keys.showRepeatCount) : Defaults.showRepeatCount
+        self.showRepeatCount = defaults.object(forKey: Keys.showRepeatCount) != nil
+            ? defaults.bool(forKey: Keys.showRepeatCount)
+            : Defaults.showRepeatCount
+
+        let visible = defaults.integer(forKey: Keys.maxVisibleKeys)
+        self.maxVisibleKeys = Defaults.maxVisibleKeysRange.contains(visible) ? visible : Defaults.maxVisibleKeys
+
+        self.showKeycapTray = defaults.object(forKey: Keys.showKeycapTray) != nil
+            ? defaults.bool(forKey: Keys.showKeycapTray)
+            : Defaults.showKeycapTray
 
         checkAccessibility()
+    }
+
+    // MARK: - 持久化（合并写盘，避免拖动滑块时逐帧写 UserDefaults）
+
+    private var persistTask: Task<Void, Never>?
+
+    private func schedulePersist() {
+        persistTask?.cancel()
+        persistTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            self?.persistNow()
+        }
+    }
+
+    /// 立即写盘（测试、导入、恢复默认等需要确定性落盘的场景调用）
+    public func persistNow() {
+        persistTask?.cancel()
+        persistTask = nil
+
+        let defaults = UserDefaults.standard
+        defaults.set(isEnabled, forKey: Keys.isEnabled)
+        defaults.set(displayMode.rawValue, forKey: Keys.displayMode)
+        defaults.set(keycapStyle.rawValue, forKey: Keys.keycapStyle)
+        defaults.set(anchor.rawValue, forKey: Keys.anchor)
+        defaults.set(themeID, forKey: Keys.themeID)
+        defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode)
+        defaults.set(keyOpacity, forKey: Keys.keyOpacity)
+        defaults.set(verticalOffset, forKey: Keys.verticalOffset)
+        defaults.set(displayDuration, forKey: Keys.displayDuration)
+        defaults.set(sizeScale, forKey: Keys.sizeScale)
+        defaults.set(showRepeatCount, forKey: Keys.showRepeatCount)
+        defaults.set(maxVisibleKeys, forKey: Keys.maxVisibleKeys)
+        defaults.set(showKeycapTray, forKey: Keys.showKeycapTray)
+        defaults.set(Self.currentSchemaVersion, forKey: Keys.schemaVersion)
+    }
+
+    // MARK: - 迁移
+
+    private static func migrateIfNeeded(_ defaults: UserDefaults) {
+        let schema = defaults.integer(forKey: Keys.schemaVersion)
+        guard schema < currentSchemaVersion else { return }
+
+        // 0.11 → 0.12：逐类配色（Key / Modifier / Escape / Border / SpecialKey）全部废弃，改由主题统一管理
+        for key in Keys.legacyColorKeys {
+            defaults.removeObject(forKey: key)
+        }
+        defaults.set(currentSchemaVersion, forKey: Keys.schemaVersion)
+    }
+
+    // MARK: - 恢复默认 / 配置快照
+
+    /// 恢复全部出厂设置
+    public func resetToDefaults() {
+        isEnabled = Defaults.isEnabled
+        displayMode = Defaults.displayMode
+        keycapStyle = Defaults.keycapStyle
+        anchor = Defaults.anchor
+        themeID = Defaults.themeID
+        appearanceMode = Defaults.appearanceMode
+        keyOpacity = Defaults.keyOpacity
+        verticalOffset = Defaults.verticalOffset
+        displayDuration = Defaults.displayDuration
+        sizeScale = Defaults.sizeScale
+        showRepeatCount = Defaults.showRepeatCount
+        maxVisibleKeys = Defaults.maxVisibleKeys
+        showKeycapTray = Defaults.showKeycapTray
+        persistNow()
+    }
+
+    /// 导出当前配置（JSON 可分享给他人）
+    public func makeSnapshot() -> SettingsSnapshot {
+        SettingsSnapshot(
+            themeID: themeID,
+            appearanceMode: appearanceMode,
+            keycapStyle: keycapStyle,
+            displayMode: displayMode,
+            anchor: anchor,
+            displayDuration: displayDuration,
+            sizeScale: sizeScale,
+            showRepeatCount: showRepeatCount,
+            keyOpacity: keyOpacity,
+            verticalOffset: verticalOffset,
+            maxVisibleKeys: maxVisibleKeys,
+            showKeycapTray: showKeycapTray,
+            isEnabled: isEnabled
+        )
+    }
+
+    /// 应用外部导入的配置（字段缺失时保留当前值）
+    public func apply(_ snapshot: SettingsSnapshot) {
+        if let id = snapshot.themeID, KeycapTheme.all.contains(where: { $0.id == id }) {
+            themeID = id
+        }
+        if let mode = snapshot.appearanceMode { appearanceMode = mode }
+        if let style = snapshot.keycapStyle { keycapStyle = style }
+        if let mode = snapshot.displayMode { displayMode = mode }
+        if let anchor = snapshot.anchor { self.anchor = anchor }
+        if let duration = snapshot.displayDuration { displayDuration = min(max(duration, 0.5), 3.0) }
+        if let scale = snapshot.sizeScale { sizeScale = min(max(scale, 0.6), 1.8) }
+        if let showRepeat = snapshot.showRepeatCount { showRepeatCount = showRepeat }
+        if let opacity = snapshot.keyOpacity { keyOpacity = min(max(opacity, 0.5), 1.0) }
+        if let offset = snapshot.verticalOffset { verticalOffset = min(max(offset, 20), 220) }
+        if let visible = snapshot.maxVisibleKeys, Defaults.maxVisibleKeysRange.contains(visible) {
+            maxVisibleKeys = visible
+        }
+        if let tray = snapshot.showKeycapTray { showKeycapTray = tray }
+        if let enabled = snapshot.isEnabled { isEnabled = enabled }
+        persistNow()
     }
 
     // MARK: - Accessibility Permission
@@ -218,5 +333,64 @@ public final class AppSettings: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
+    }
+}
+
+// MARK: - 配置快照
+
+/// 可序列化的配置快照：支持导出 / 导入，用于分享主题与整套参数
+public struct SettingsSnapshot: Codable, Equatable, Sendable {
+    public var themeID: String?
+    public var appearanceMode: ThemeAppearanceMode?
+    public var keycapStyle: KeycapStyle?
+    public var displayMode: DisplayMode?
+    public var anchor: DisplayAnchor?
+    public var displayDuration: Double?
+    public var sizeScale: Double?
+    public var showRepeatCount: Bool?
+    public var keyOpacity: Double?
+    public var verticalOffset: Double?
+    public var maxVisibleKeys: Int?
+    public var showKeycapTray: Bool?
+    public var isEnabled: Bool?
+
+    public init(
+        themeID: String? = nil,
+        appearanceMode: ThemeAppearanceMode? = nil,
+        keycapStyle: KeycapStyle? = nil,
+        displayMode: DisplayMode? = nil,
+        anchor: DisplayAnchor? = nil,
+        displayDuration: Double? = nil,
+        sizeScale: Double? = nil,
+        showRepeatCount: Bool? = nil,
+        keyOpacity: Double? = nil,
+        verticalOffset: Double? = nil,
+        maxVisibleKeys: Int? = nil,
+        showKeycapTray: Bool? = nil,
+        isEnabled: Bool? = nil
+    ) {
+        self.themeID = themeID
+        self.appearanceMode = appearanceMode
+        self.keycapStyle = keycapStyle
+        self.displayMode = displayMode
+        self.anchor = anchor
+        self.displayDuration = displayDuration
+        self.sizeScale = sizeScale
+        self.showRepeatCount = showRepeatCount
+        self.keyOpacity = keyOpacity
+        self.verticalOffset = verticalOffset
+        self.maxVisibleKeys = maxVisibleKeys
+        self.showKeycapTray = showKeycapTray
+        self.isEnabled = isEnabled
+    }
+
+    public func encodedJSON() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(self)
+    }
+
+    public static func decode(_ data: Data) throws -> SettingsSnapshot {
+        try JSONDecoder().decode(SettingsSnapshot.self, from: data)
     }
 }
