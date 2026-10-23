@@ -5,33 +5,37 @@
 
 import SwiftUI
 
-/// 键帽视觉主题风格
+/// 键帽材质风格（只描述「光照与表面处理」，不含任何颜色信息）
 public enum KeycapStyle: String, CaseIterable, Identifiable, Codable, Sendable {
-    case classicDark = "classicDark"
-    case frostedGlass = "frostedGlass"
-    case auroraGlow = "auroraGlow"
+    case matte
+    case frosted
+    case aurora
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .classicDark:
-            return "经典深黑"
-        case .frostedGlass:
-            return "磨砂亚克力"
-        case .auroraGlow:
-            return "极光微光"
+        case .matte: return "哑光实体"
+        case .frosted: return "磨砂玻璃"
+        case .aurora: return "极光染色"
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .classicDark:
-            return "拟物键帽质感、立体微高光与柔和阴影"
-        case .frostedGlass:
-            return "通透磨砂毛玻璃，现代简约轻盈"
-        case .auroraGlow:
-            return "暗夜深邃底色配合极光霓虹微光"
+        case .matte: return "实体注塑键帽，立体微高光与柔和阴影"
+        case .frosted: return "通透毛玻璃，现代轻盈"
+        case .aurora: return "深色底 + 强调色霓虹染色"
+        }
+    }
+
+    /// 历史 rawValue 迁移：0.11 及以前写作 classicDark / frostedGlass / auroraGlow
+    public static func migrate(fromLegacy raw: String) -> KeycapStyle? {
+        switch raw {
+        case "classicDark": return .matte
+        case "frostedGlass": return .frosted
+        case "auroraGlow": return .aurora
+        default: return KeycapStyle(rawValue: raw)
         }
     }
 }

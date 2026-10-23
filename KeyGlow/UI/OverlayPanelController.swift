@@ -36,7 +36,7 @@ public final class KeyGlowPanel: NSPanel {
     public override var canBecomeMain: Bool { false }
 }
 
-/// 悬浮层控制器：负责管理窗口生命周期、屏幕锚点定位及显示
+/// 悬浮层控制器：负责管理窗口生命周期、屏幕锚点定位、外观模式与显示
 @MainActor
 public final class OverlayPanelController: ObservableObject {
     public static let shared = OverlayPanelController()
@@ -44,12 +44,18 @@ public final class OverlayPanelController: ObservableObject {
     private var panel: KeyGlowPanel?
     private var cancellables = Set<AnyCancellable>()
 
-    // 预留足够容纳最多 3 个键帽及阴影的固定画布尺寸，避免 Auto Layout 循环更新
+    // 预留足够容纳最多 4 个键帽及阴影的固定画布尺寸，避免 Auto Layout 循环更新
     private let panelSize = CGSize(width: 720, height: 140)
+
+    /// 跟随鼠标时，键帽内容中心相对光标的水平偏移量。
+    /// 面板宽度固定为 720 且内容居中，因此这里用「中心偏移」而非「左上角偏移」，
+    /// 才能保证无论当前有几个键帽，键帽都紧贴光标而不是偏到半屏之外。
+    private let mouseFollowCenterOffset: CGFloat = 70
 
     private init() {
         setupPanel()
         bindEvents()
+        applyAppearanceMode()
     }
 
     // MARK: - 初始化 Panel
@@ -86,10 +92,24 @@ public final class OverlayPanelController: ObservableObject {
         Publishers.CombineLatest(AppSettings.shared.$anchor, AppSettings.shared.$verticalOffset)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _ in
-                guard let self = self else { return }
-                self.updatePosition()
+                self?.updatePosition()
             }
             .store(in: &cancellables)
+
+        // 外观模式变化即时生效（跟随系统 / 固定浅色 / 固定深色）
+        AppSettings.shared.$appearanceMode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.applyAppearanceMode()
+            }
+            .store(in: &cancellables)
+    }
+
+    /// 把用户选择的外观模式作用到悬浮窗上。
+    /// 关键点：设为 nil 时窗口会继承系统外观，SwiftUI 的 `colorScheme` 环境值随之变化，
+    /// 主题的白天/夜晚配色即自动切换。
+    private func applyAppearanceMode() {
+        panel?.appearance = AppSettings.shared.appearanceMode.nsAppearance
     }
 
     /// 根据当前配置的 Anchor 与当前屏幕/鼠标动态计算坐标
@@ -132,21 +152,19 @@ public final class OverlayPanelController: ObservableObject {
             origin.y = screenFrame.maxY - panelSize.height - vOffset
 
         case .mouseFollow:
-            // 靠近鼠标光标动态跟随，并防止溢出当前屏幕
-            var x = mouseLocation.x + 24
+            // 键帽中心贴住光标右侧（而非面板左上角对齐，避免 720pt 画布造成的整屏偏移）
+            let halfWidth = panelSize.width / 2
+            var centerX = mouseLocation.x + mouseFollowCenterOffset
+            if centerX + halfWidth > screenFrame.maxX {
+                // 右侧空间不足时翻转到光标左侧
+                centerX = mouseLocation.x - mouseFollowCenterOffset
+            }
+            centerX = min(max(centerX, screenFrame.minX + halfWidth), screenFrame.maxX - halfWidth)
+
             var y = mouseLocation.y - (panelSize.height / 2)
+            y = min(max(y, screenFrame.minY + 20), screenFrame.maxY - panelSize.height - 20)
 
-            // 边缘保护校验
-            if x + panelSize.width > screenFrame.maxX {
-                x = mouseLocation.x - panelSize.width - 24
-            }
-            if y < screenFrame.minY {
-                y = screenFrame.minY + 20
-            } else if y + panelSize.height > screenFrame.maxY {
-                y = screenFrame.maxY - panelSize.height - 20
-            }
-
-            origin = CGPoint(x: x, y: y)
+            origin = CGPoint(x: centerX - halfWidth, y: y)
         }
 
         let targetRect = NSRect(origin: origin, size: panelSize)

@@ -35,18 +35,18 @@ KeyGlow/
 │   │   ├── KeyMonitor.swift           # @MainActor 监听引擎 + 后台专用线程 KeyMonitorWorker
 │   │   └── KeyCodeMapper.swift        # Carbon/CGEvent 键码解析、Unicode 提取与 SF Symbols 映射
 │   ├── Models/                        # 数据模型与配置定义
-│   │   ├── AppSettings.swift          # 用户偏好持久化（UserDefaults）及系统权限检查
+│   │   ├── AppSettings.swift          # 用户偏好持久化（UserDefaults）、配置迁移、快照导入导出
 │   │   ├── KeyStroke.swift            # 按键/组合键数据模型（含 SF Symbols / 修饰键等）
-│   │   ├── KeycapStyle.swift          # 键帽材质枚举（经典深黑、磨砂亚克力、极光微光）
-│   │   ├── SpecialKeyColor.swift      # 修饰键/特殊键独立着色枚举（6 种配色）
+│   │   ├── KeycapTheme.swift          # 【配色单一数据源】RGB 基元、色板派生、6 套主题 × 昼夜双档、外观模式
+│   │   ├── KeycapStyle.swift          # 键帽材质枚举（哑光实体、磨砂玻璃、极光染色，不含颜色）
 │   │   ├── DisplayAnchor.swift        # 5 种屏幕定位锚点（底部居中、左下、右下、顶部、跟随光标）
 │   │   └── DisplayMode.swift          # 显示过滤模式（仅快捷键模式、全按键模式）
 │   ├── UI/                            # 原生界面与悬浮层组件
-│   │   ├── OverlayPanelController.swift # KeyGlowPanel (穿透 NSPanel) 及多显示器自适应定位
-│   │   ├── OverlayContentView.swift   # 按键队列容器（右进左出 Spring 动效）
-│   │   ├── KeycapView.swift           # 拟物键帽外壳、微倒角、渐变高光与环境光晕
-│   │   ├── KeycapItemView.swift       # 单个键帽内部文字/SF Symbol 渲染与自适应排版
-│   │   └── PreferencesView.swift      # SwiftUI 偏好设置面板与实时按键预览
+│   │   ├── OverlayPanelController.swift # KeyGlowPanel (穿透 NSPanel)、多显示器定位、外观模式绑定
+│   │   ├── OverlayContentView.swift   # 按键队列容器（右进左出 Spring 动效、可选键帽托盘）
+│   │   ├── KeycapView.swift           # 按键组合视图：按角色从主题取色 + 连按角标
+│   │   ├── KeycapItemView.swift       # 单个键帽的材质/光照/排版渲染（颜色由外部传入 palette）
+│   │   └── PreferencesView.swift      # 三页签偏好设置（外观 / 行为 / 高级）与实时预览
 │   └── Assets.xcassets/               # 应用图标（16x16 ~ 1024x1024 全套尺寸）与色彩集
 ├── KeyGlowTests/                      # 单元测试（按键映射、修饰键排序、就地升级等）
 │   └── KeyGlowTests.swift

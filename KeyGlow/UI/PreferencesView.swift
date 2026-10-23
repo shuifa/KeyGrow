@@ -3,100 +3,73 @@
 //  KeyGlow
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// 极简拟物、高级典雅的偏好设置面板（参考 Keystroke Pro 视觉规范）
+/// 偏好设置面板
+///
+/// 0.12 起的信息架构：把原来单列滚动堆叠的 6 大块，重组为「外观 / 行为 / 高级」三页，
+/// 并且配色不再逐类调节，而是从内置主题里选一套（每套自带白天 / 夜晚两档）。
 public struct PreferencesView: View {
     @ObservedObject private var settings = AppSettings.shared
+    @Environment(\.colorScheme) private var colorScheme
 
-    // 当前选中的配色子项：Key Color, Modifier Color, Escape Color, Border Color
-    @State private var selectedColorCategory: ColorCategory = .keyColor
+    @State private var selectedTab: PreferencesTab = .appearance
+    @State private var statusMessage: String?
 
-    private enum ColorCategory: String, CaseIterable, Identifiable {
-        case keyColor = "keyColor"
-        case modifierColor = "modifierColor"
-        case escapeColor = "escapeColor"
-        case borderColor = "borderColor"
+    public enum PreferencesTab: String, CaseIterable, Identifiable {
+        case appearance
+        case behavior
+        case advanced
 
-        var id: String { rawValue }
+        public var id: String { rawValue }
 
-        var title: String {
+        public var title: String {
             switch self {
-            case .keyColor: return "Key Color"
-            case .modifierColor: return "Modifier Color"
-            case .escapeColor: return "Escape Color"
-            case .borderColor: return "Border Color"
+            case .appearance: return "外观"
+            case .behavior: return "行为"
+            case .advanced: return "高级"
             }
         }
-
-        var localizedTitle: String {
-            switch self {
-            case .keyColor: return "常规键"
-            case .modifierColor: return "修饰键"
-            case .escapeColor: return "Esc 键"
-            case .borderColor: return "边框高光"
-            }
-        }
-    }
-
-    // 测试预览按键组合 1：修饰键 + 字母键
-    private var previewStroke1: KeyStroke {
-        KeyStroke(
-            modifiers: [.command],
-            content: .text("C"),
-            rawIdentifier: "cmd+c",
-            isShortcut: true,
-            isSpecialFunctionKey: false,
-            timestamp: Date()
-        )
-    }
-
-    // 测试预览按键组合 2：独立 Escape 键
-    private var previewStroke2: KeyStroke {
-        KeyStroke(
-            modifiers: [],
-            content: .symbol(name: "escape", fallbackText: "Esc"),
-            rawIdentifier: "esc",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            timestamp: Date()
-        )
     }
 
     public init() {}
 
     public var body: some View {
         VStack(spacing: 0) {
-            // 头部 Header
             headerView
+
+            Picker("", selection: $selectedTab) {
+                ForEach(PreferencesTab.allCases) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
 
             Divider()
 
             ScrollView {
-                VStack(spacing: 22) {
-                    // 权限状态提示与引导卡片
-                    permissionSection
+                VStack(spacing: 16) {
+                    // 高级页已有「权限与状态」卡片，这里不再重复提示
+                    if !settings.isAccessibilityGranted && selectedTab != .advanced {
+                        permissionBanner
+                    }
 
-                    // 实时动效与拟物质感大卡片预览
-                    previewSection
-
-                    // 核心配色定制卡片（Key, Modifier, Escape, Border, Opacity）
-                    colorCustomizationSection
-
-                    // 视觉风格与尺寸（Style & Size）
-                    styleAndSizeSection
-
-                    // 核心参数设置（显示模式、屏幕位置、停留时长）
-                    parametersSection
-
-                    // 互动试炼场（即时在屏幕上体验 Spring 动效与字母按键）
-                    testActionSection
+                    switch selectedTab {
+                    case .appearance: appearanceTab
+                    case .behavior: behaviorTab
+                    case .advanced: advancedTab
+                    }
                 }
                 .padding(20)
             }
         }
-        .frame(width: 520, height: 620)
-        .background(Color(NSColor.windowBackgroundColor))
+        .frame(minWidth: 580, minHeight: 700)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             settings.checkAccessibility()
         }
@@ -107,7 +80,7 @@ public struct PreferencesView: View {
     private var headerView: some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(
                         LinearGradient(
                             colors: [Color.blue, Color.purple],
@@ -115,18 +88,17 @@ public struct PreferencesView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    .frame(width: 36, height: 36)
+                    .frame(width: 34, height: 34)
                 Image(systemName: "keyboard.fill")
-                    .font(.system(size: 18))
+                    .font(.system(size: 17))
                     .foregroundColor(.white)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("KeyGlow 偏好设置")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                Text("拟物实体质感 · 原生丝滑键盘可视化")
-                    .font(.caption)
+                    .font(.system(size: 13, weight: .semibold))
+                Text("主题：\(settings.theme.name) · \(colorScheme == .dark ? "夜晚" : "白天")档")
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
 
@@ -134,548 +106,599 @@ public struct PreferencesView: View {
 
             Toggle("", isOn: $settings.isEnabled)
                 .toggleStyle(.switch)
+                .labelsHidden()
                 .help(settings.isEnabled ? "点击暂停按键监听" : "点击开启按键监听")
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
     }
 
-    // MARK: - 权限状态
+    // MARK: - 权限提示（未授权时才出现，已授权不再占据版面）
 
-    private var permissionSection: some View {
-        HStack(spacing: 14) {
-            Image(systemName: settings.isAccessibilityGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 24))
-                .foregroundColor(settings.isAccessibilityGranted ? .green : .orange)
+    private var permissionBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 20))
+                .foregroundColor(.orange)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(settings.isAccessibilityGranted ? "辅助功能权限：已授予" : "需要辅助功能权限")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                Text(settings.isAccessibilityGranted ? "KeyGlow 拥有全局按键监听权限，可正常渲染拟物键帽。" : "macOS 安全机制要求授予辅助功能权限以捕获键盘操作。")
-                    .font(.caption)
+                Text("需要辅助功能权限")
+                    .font(.system(size: 12, weight: .medium))
+                Text("macOS 要求授予辅助功能权限，才能全局捕获键盘操作。")
+                    .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
 
             Spacer()
 
-            if !settings.isAccessibilityGranted {
-                Button("去授权") {
-                    settings.openAccessibilitySettings()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            } else {
-                Button("刷新") {
-                    settings.checkAccessibility()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            Button("去授权") {
+                settings.requestAccessibilityPermission()
+                settings.openAccessibilitySettings()
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button("刷新") {
+                settings.checkAccessibility()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
-        .padding(14)
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.orange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
         )
     }
 
-    // MARK: - 实时质感效果大卡片预览
+    // MARK: - 外观页
 
-    private var previewSection: some View {
+    private var appearanceTab: some View {
+        VStack(spacing: 16) {
+            previewCard
+            themeSection
+            appearanceModeSection
+            materialSection
+            sizeAndOpacitySection
+        }
+    }
+
+    /// 实时预览：浅/深两种桌面背景都示意，键帽始终有稳定对比度
+    private var previewCard: some View {
         VStack(spacing: 10) {
             HStack {
                 Text("效果实时预览")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
                 Spacer()
-                Text("最多同时呈现 2 个按键")
-                    .font(.caption2)
+                Text("\(settings.maxVisibleKeys) 键上限 · \(settings.theme.name)")
+                    .font(.system(size: 10))
                     .foregroundColor(.secondary)
             }
 
             ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(NSColor.controlBackgroundColor).opacity(0.6))
-                    .frame(height: 110)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(desktopSimulation)
+                    .frame(height: 132)
 
-                HStack(spacing: 12) {
-                    // 第一个按键卡片（修饰键 + 字母键）
+                HStack(spacing: 18) {
                     KeycapView(
-                        stroke: previewStroke1,
+                        stroke: sampleStroke([.command], "C", identifier: "cmd+c"),
+                        theme: settings.theme,
                         style: settings.keycapStyle,
-                        accentColor: settings.specialKeyColor,
-                        punchTrigger: 0,
-                        repeatCount: 1
+                        colorScheme: colorScheme,
+                        opacity: settings.keyOpacity
                     )
-
-                    // 第二个按键卡片（Esc 键）
                     KeycapView(
-                        stroke: previewStroke2,
+                        stroke: sampleStroke([], "esc", special: true, identifier: "esc"),
+                        theme: settings.theme,
                         style: settings.keycapStyle,
-                        accentColor: settings.specialKeyColor,
-                        punchTrigger: 0,
-                        repeatCount: settings.showRepeatCount ? 2 : 1
+                        colorScheme: colorScheme,
+                        opacity: settings.keyOpacity
+                    )
+                    KeycapView(
+                        stroke: sampleStroke([], "A", identifier: "a", repeatCount: 3),
+                        theme: settings.theme,
+                        style: settings.keycapStyle,
+                        colorScheme: colorScheme,
+                        opacity: settings.keyOpacity
                     )
                 }
                 .scaleEffect(0.92)
             }
         }
+        .padding(14)
+        .background(cardBackground)
     }
 
-    // MARK: - 核心配色配置（Key Color, Modifier Color, Escape Color, Border Color, Opacity）
+    private var desktopSimulation: LinearGradient {
+        if colorScheme == .dark {
+            return LinearGradient(
+                colors: [Color(white: 0.20), Color(white: 0.10)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            return LinearGradient(
+                colors: [Color(white: 0.97), Color(white: 0.87)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
 
-    private var colorCustomizationSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("按键个性化配色 (Colors)")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text("明亮色系 · 12 色")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
+    private var themeSection: some View {
+        cardSection("配色主题", subtitle: "\(KeycapTheme.all.count) 套 · 每套含白天 / 夜晚") {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(KeycapTheme.all) { theme in
+                    themeCard(theme)
+                }
             }
+        }
+    }
 
-            // 分类选择器
-            Picker("", selection: $selectedColorCategory) {
-                ForEach(ColorCategory.allCases) { cat in
-                    Text(cat.localizedTitle).tag(cat)
+    private func themeCard(_ theme: KeycapTheme) -> some View {
+        let isSelected = settings.themeID == theme.id
+        let colors = theme.colors(for: colorScheme)
+
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                settings.themeID = theme.id
+                settings.keycapStyle = theme.recommendedStyle
+            }
+        } label: {
+            VStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    KeycapItemView(
+                        style: settings.keycapStyle,
+                        content: .symbol(name: "command", fallbackText: "⌘"),
+                        palette: colors.modifier,
+                        borderStyle: theme.border,
+                        minWidth: 32,
+                        height: 32
+                    )
+                    KeycapItemView(
+                        style: settings.keycapStyle,
+                        content: .text("C"),
+                        palette: colors.regular,
+                        borderStyle: theme.border,
+                        minWidth: 32,
+                        height: 32
+                    )
+                    KeycapItemView(
+                        style: settings.keycapStyle,
+                        content: .text("esc"),
+                        palette: colors.escape,
+                        borderStyle: theme.border,
+                        minWidth: 38,
+                        height: 32
+                    )
+                    KeycapItemView(
+                        style: settings.keycapStyle,
+                        content: .symbol(name: "arrow.left", fallbackText: "←"),
+                        palette: colors.special,
+                        borderStyle: theme.border,
+                        minWidth: 32,
+                        height: 32
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 6) {
+                    Text(theme.name)
+                        .font(.system(size: 12, weight: isSelected ? .bold : .medium))
+                        .foregroundColor(.primary)
+
+                    Spacer()
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+
+                Text(theme.subtitle)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.10) : Color.primary.opacity(0.035))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.06), lineWidth: isSelected ? 1.5 : 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var appearanceModeSection: some View {
+        cardSection("外观模式", subtitle: colorScheme == .dark ? "当前：夜晚档" : "当前：白天档") {
+            Picker("", selection: $settings.appearanceMode) {
+                ForEach(ThemeAppearanceMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
 
-            // 对应类别的具体颜色选择
-            switch selectedColorCategory {
-            case .keyColor:
-                keyColorPicker(
-                    title: "常规字母/字符键 (Key Color)",
-                    sampleContent: .text("A"),
-                    currentSelection: settings.keyColor
-                ) { opt in
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                        settings.keyColor = opt
-                    }
+            Text("「跟随系统」会随 macOS 浅色/深色自动切换该主题的白天与夜晚配色，无需手动改主题。")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var materialSection: some View {
+        cardSection("键帽材质", subtitle: "与主题解耦，可单独覆盖") {
+            HStack(spacing: 10) {
+                ForEach(KeycapStyle.allCases) { style in
+                    materialButton(style)
                 }
+            }
+        }
+    }
 
-            case .modifierColor:
-                keyColorPicker(
-                    title: "修饰键配色 (Modifier Color: ⌘ ⌥ ⌃ ⇧)",
-                    sampleContent: .symbol(name: "command", fallbackText: "⌘"),
-                    currentSelection: settings.modifierColor
-                ) { opt in
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                        settings.modifierColor = opt
-                    }
+    private func materialButton(_ style: KeycapStyle) -> some View {
+        let isSelected = settings.keycapStyle == style
+        // 用修饰键配色做预览：普通键是中性灰，三种材质的差别会被压得很不明显
+        let palette = settings.theme.colors(for: colorScheme).modifier
+
+        return Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
+                settings.keycapStyle = style
+            }
+        } label: {
+            VStack(spacing: 7) {
+                KeycapItemView(
+                    style: style,
+                    content: .symbol(name: "command", fallbackText: "⌘"),
+                    palette: palette,
+                    borderStyle: settings.theme.border,
+                    minWidth: 38,
+                    height: 38
+                )
+                Text(style.title)
+                    .font(.system(size: 11, weight: isSelected ? .bold : .regular))
+                    .foregroundColor(isSelected ? .primary : .secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.10) : Color.primary.opacity(0.035))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(style.subtitle)
+    }
+
+    private var sizeAndOpacitySection: some View {
+        cardSection("尺寸与不透明度") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label("按键尺寸", systemImage: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 12))
+                    Spacer()
+                    Text(String(format: "%.2fx", settings.sizeScale))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
                 }
-
-            case .escapeColor:
-                keyColorPicker(
-                    title: "Escape 与特殊功能键 (Escape Color)",
-                    sampleContent: .symbol(name: "escape", fallbackText: "Esc"),
-                    currentSelection: settings.escapeColor
-                ) { opt in
-                    withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                        settings.escapeColor = opt
-                    }
-                }
-
-            case .borderColor:
-                borderColorPickerRow
+                Slider(value: $settings.sizeScale, in: 0.6...1.8, step: 0.05)
             }
 
             Divider()
 
-            // 不透明度调节（Opacity: 50% ~ 100%）
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Label("键帽不透明度 (Opacity)", systemImage: "circle.lefthalf.filled")
-                        .font(.subheadline)
+                    Label("键帽不透明度", systemImage: "circle.lefthalf.filled")
+                        .font(.system(size: 12))
                     Spacer()
                     Text("\(Int(settings.keyOpacity * 100))%")
-                        .font(.system(.subheadline, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
                 Slider(value: $settings.keyOpacity, in: 0.5...1.0, step: 0.05)
             }
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
-    }
-
-    /// 配色选择器：直接以真实键帽渲染每个色号，所见即所得地呈现明度、字符对比与材质高光
-    private func keyColorPicker(
-        title: String,
-        sampleContent: KeyDisplayContent,
-        currentSelection: KeyColorOption,
-        onSelect: @escaping (KeyColorOption) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 9) {
-                ForEach(KeyColorOption.allCases) { opt in
-                    Button {
-                        onSelect(opt)
-                    } label: {
-                        VStack(spacing: 5) {
-                            KeycapItemView(
-                                style: settings.keycapStyle,
-                                content: sampleContent,
-                                minWidth: 44,
-                                height: 38,
-                                customKeyColor: opt,
-                                customBorderColor: settings.borderColor
-                            )
-
-                            Text(opt.localizedName)
-                                .font(.system(size: 10, weight: currentSelection == opt ? .bold : .regular))
-                                .foregroundColor(currentSelection == opt ? .primary : .secondary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .fill(currentSelection == opt ? Color.accentColor.opacity(0.12) : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .strokeBorder(currentSelection == opt ? Color.accentColor : Color.clear, lineWidth: 1.2)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .help("\(opt.title) · \(opt.localizedName)")
-                }
-            }
-        }
-    }
-
-    private var borderColorPickerRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("倒角高光与微边框 (Border Color)")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 10) {
-                ForEach(BorderColorOption.allCases) { opt in
-                    Button {
-                        withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                            settings.borderColor = opt
-                        }
-                    } label: {
-                        HStack(spacing: 7) {
-                            Circle()
-                                .fill(opt.previewColor)
-                                .frame(width: 14, height: 14)
-                                .overlay(
-                                    Circle()
-                                        .strokeBorder(Color.white.opacity(0.4), lineWidth: 1)
-                                )
-
-                            Text(opt.localizedName)
-                                .font(.system(size: 11, weight: settings.borderColor == opt ? .bold : .regular))
-                                .foregroundColor(settings.borderColor == opt ? .primary : .secondary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color(NSColor.controlBackgroundColor).opacity(0.8))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(
-                                    settings.borderColor == opt ? Color.accentColor : Color.clear,
-                                    lineWidth: 1.5
-                                )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    // MARK: - 视觉样式与尺寸（Style & Size）
-
-    private var styleAndSizeSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("质感风格与尺寸 (Style & Size)")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
-                Spacer()
-            }
-
-            // 键帽风格
-            HStack(spacing: 12) {
-                ForEach(KeycapStyle.allCases) { style in
-                    Button {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                            settings.keycapStyle = style
-                        }
-                    } label: {
-                        VStack(spacing: 8) {
-                            KeycapItemView(
-                                style: style,
-                                content: .symbol(name: "command", fallbackText: "⌘"),
-                                minWidth: 40,
-                                height: 40,
-                                isSpecialKey: true,
-                                isModifierKey: true
-                            )
-
-                            Text(style.title)
-                                .font(.caption)
-                                .fontWeight(settings.keycapStyle == style ? .bold : .regular)
-                                .foregroundColor(settings.keycapStyle == style ? .primary : .secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(Color(NSColor.controlBackgroundColor))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(
-                                    settings.keycapStyle == style ? Color.accentColor : Color.clear,
-                                    lineWidth: 2
-                                )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
 
             Divider()
 
-            // 尺寸档位快捷切换 (Small, Medium, Large)
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Label("按键尺寸大小 (Size)", systemImage: "arrow.up.left.and.arrow.down.right")
-                        .font(.subheadline)
-                    Spacer()
-                    Picker("", selection: Binding<Double>(
-                        get: {
-                            if abs(settings.sizeScale - 0.85) < 0.05 { return 0.85 }
-                            if abs(settings.sizeScale - 1.15) < 0.05 { return 1.15 }
-                            return 1.0
-                        },
-                        set: { newScale in
-                            withAnimation(.spring(duration: 0.22)) {
-                                settings.sizeScale = newScale
-                            }
-                        }
-                    )) {
-                        Text("Small (0.85x)").tag(0.85)
-                        Text("Medium (1.0x)").tag(1.0)
-                        Text("Large (1.15x)").tag(1.15)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 240)
+            Toggle(isOn: $settings.showKeycapTray) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("键帽托盘")
+                        .font(.system(size: 12))
+                    Text("在键帽下方垫一层半透明底板，浅色桌面下对比度更稳")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
                 }
-
-                Slider(value: $settings.sizeScale, in: 0.7...1.3, step: 0.05)
             }
+            .toggleStyle(.switch)
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
     }
 
-    // MARK: - 核心参数
+    // MARK: - 行为页
 
-    private var parametersSection: some View {
+    private var behaviorTab: some View {
         VStack(spacing: 16) {
-            // 显示过滤模式（默认全按键模式，保证打字及单字母输入直接可见）
-            HStack {
-                Label("触发模式", systemImage: "slider.horizontal.3")
-                    .font(.subheadline)
-                Spacer()
+            cardSection("触发模式") {
                 Picker("", selection: $settings.displayMode) {
                     ForEach(DisplayMode.allCases) { mode in
                         Text(mode.title).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 220)
+                .labelsHidden()
+
+                Text(settings.displayMode.description)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
             }
 
-            Divider()
-
-            // 屏幕位置
-            HStack {
-                Label("显示位置", systemImage: "macwindow.on.rectangle")
-                    .font(.subheadline)
-                Spacer()
+            cardSection("显示位置") {
                 Picker("", selection: $settings.anchor) {
                     ForEach(DisplayAnchor.allCases) { anchor in
                         Label(anchor.title, systemImage: anchor.iconName).tag(anchor)
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 190)
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if settings.anchor != .mouseFollow {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Label("上下边缘距离", systemImage: "arrow.up.and.down")
+                                .font(.system(size: 12))
+                            Spacer()
+                            Text("\(Int(settings.verticalOffset)) pt")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $settings.verticalOffset, in: 20...220, step: 5)
+                    }
+                }
             }
 
-            // 上下边缘距离调节滑块
-            if settings.anchor != .mouseFollow {
+            cardSection("节奏") {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Label("上下边缘距离", systemImage: "arrow.up.and.down")
-                            .font(.subheadline)
+                        Label("停留时长", systemImage: "clock")
+                            .font(.system(size: 12))
                         Spacer()
-                        Text("\(Int(settings.verticalOffset)) pt")
-                            .font(.system(.subheadline, design: .monospaced))
+                        Text(String(format: "%.1f 秒", settings.displayDuration))
+                            .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
-                    Slider(value: $settings.verticalOffset, in: 20...220, step: 5)
+                    Slider(value: $settings.displayDuration, in: 0.5...3.0, step: 0.1)
+                }
+
+                Divider()
+
+                HStack {
+                    Label("同屏最多保留", systemImage: "square.stack.3d.up")
+                        .font(.system(size: 12))
+                    Spacer()
+                    Picker("", selection: $settings.maxVisibleKeys) {
+                        ForEach(Array(AppSettings.Defaults.maxVisibleKeysRange), id: \.self) { value in
+                            Text("\(value) 个").tag(value)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 220)
+                }
+
+                Divider()
+
+                Toggle(isOn: $settings.showRepeatCount) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("显示连按次数 (×N)")
+                            .font(.system(size: 12))
+                        Text("开启后同一按键连按会原地计数，而不是不断推挤卡片")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+        }
+    }
+
+    // MARK: - 高级页
+
+    private var advancedTab: some View {
+        VStack(spacing: 16) {
+            cardSection("权限与状态") {
+                HStack(spacing: 10) {
+                    Image(systemName: settings.isAccessibilityGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundColor(settings.isAccessibilityGranted ? .green : .orange)
+                    Text(settings.isAccessibilityGranted ? "辅助功能权限已授予" : "辅助功能权限未授予")
+                        .font(.system(size: 12))
+                    Spacer()
+                    Button("刷新") { settings.checkAccessibility() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                 }
             }
 
-            Divider()
-
-            // 停留时长滑块（参考 Keystroke Pro 推荐 1.6s）
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Label("停留时长 (Display Duration)", systemImage: "clock")
-                        .font(.subheadline)
+            cardSection("动效体验", subtitle: "在屏幕上实际渲染一次") {
+                HStack(spacing: 8) {
+                    Button("字母 A") { simulateSingle("a", modifiers: [], text: "A") }
+                        .buttonStyle(.borderedProminent)
+                    Button("⌘ C") { simulateSingle("cmd+c", modifiers: [.command], text: "C") }
+                        .buttonStyle(.bordered)
+                    Button("esc") { simulateSingle("esc", modifiers: [], text: "esc", isSpecial: true) }
+                        .buttonStyle(.bordered)
                     Spacer()
-                    Text(String(format: "%.1f 秒", settings.displayDuration))
-                        .font(.system(.subheadline, design: .monospaced))
+                    Button("连按 ×3") { simulateRepeatSequence() }
+                        .buttonStyle(.bordered)
+                }
+                .controlSize(.small)
+            }
+
+            cardSection("配置") {
+                HStack(spacing: 8) {
+                    Button("恢复默认") {
+                        withAnimation { settings.resetToDefaults() }
+                        statusMessage = "已恢复出厂设置"
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("导出配置…") { exportSettings() }
+                        .buttonStyle(.bordered)
+
+                    Button("导入配置…") { importSettings() }
+                        .buttonStyle(.bordered)
+
+                    Spacer()
+
+                    Text(statusMessage ?? "")
+                        .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 }
-                Slider(value: $settings.displayDuration, in: 0.5...3.0, step: 0.1)
+                .controlSize(.small)
             }
 
-            Divider()
-
-            // 连按合并开关
-            Toggle(isOn: $settings.showRepeatCount) {
-                Label("显示连按次数 (×N)", systemImage: "repeat")
-                    .font(.subheadline)
+            HStack {
+                Spacer()
+                Text("KeyGlow \(appVersion) · MIT License")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Spacer()
             }
-            .toggleStyle(.switch)
+            .padding(.top, 4)
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
     }
 
-    // MARK: - 即时体验测试
+    // MARK: - 通用容器
 
-    private var testActionSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("动效体验测试")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                Text("连续点击下方按键体验最多 2 个键帽从右边进左边出的 Spring 动效与拟物配色：")
-                    .font(.caption)
+    private var cardBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color(nsColor: .controlBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+    }
+
+    @ViewBuilder
+    private func cardSection<Content: View>(
+        _ title: String,
+        subtitle: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.secondary)
-            }
-
-            HStack(spacing: 8) {
-                // 单独点击字母按键测试（验证需求 3 修复）
-                Button {
-                    simulateSingle("A", modifiers: [], text: "A", isSpecial: false)
-                } label: {
-                    Text("字母 A")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-
-                Button {
-                    simulateSingle("⌘ C", modifiers: [.command], text: "C", isSpecial: false)
-                } label: {
-                    Text("⌘ C")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button {
-                    simulateSingle("Esc", modifiers: [], text: "Esc", isSpecial: true)
-                } label: {
-                    Text("Esc")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
                 Spacer()
-
-                Button {
-                    simulateRepeatSequence()
-                } label: {
-                    Label("连按 ×3 演示", systemImage: "repeat")
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.9))
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button {
-                    simulateSequence()
-                } label: {
-                    Label("双卡推挤演练", systemImage: "play.fill")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
+            content()
         }
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(NSColor.controlBackgroundColor))
+        .background(cardBackground)
+    }
+
+    // MARK: - 工具
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        let build = info?["CFBundleVersion"] as? String ?? "0"
+        return "v\(short) (\(build))"
+    }
+
+    private func sampleStroke(
+        _ modifiers: [KeyModifier],
+        _ text: String,
+        special: Bool = false,
+        identifier: String,
+        repeatCount: Int = 1
+    ) -> KeyStroke {
+        KeyStroke(
+            modifiers: modifiers,
+            content: .text(text),
+            rawIdentifier: identifier,
+            isShortcut: !modifiers.isEmpty || special,
+            isSpecialFunctionKey: special,
+            repeatCount: repeatCount
         )
     }
+
+    // MARK: - 模拟与配置导入导出
 
     private func simulateSingle(_ id: String, modifiers: [KeyModifier], text: String, isSpecial: Bool = false) {
         let stroke = KeyStroke(
             modifiers: modifiers,
             content: .text(text),
-            rawIdentifier: id.lowercased(),
+            rawIdentifier: id,
             isShortcut: true,
-            isSpecialFunctionKey: isSpecial,
-            timestamp: Date()
+            isSpecialFunctionKey: isSpecial
         )
         KeyMonitor.shared.simulateKeyStroke(stroke)
     }
 
     private func simulateRepeatSequence() {
-        simulateSingle("⌘ C", modifiers: [.command], text: "C")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-            simulateSingle("⌘ C", modifiers: [.command], text: "C")
+        simulateSingle("cmd+c", modifiers: [.command], text: "C")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [self] in
+            simulateSingle("cmd+c", modifiers: [.command], text: "C")
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.44) {
-            simulateSingle("⌘ C", modifiers: [.command], text: "C")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.44) { [self] in
+            simulateSingle("cmd+c", modifiers: [.command], text: "C")
         }
     }
 
-    private func simulateSequence() {
-        // 先发送卡片 1
-        simulateSingle("A", modifiers: [], text: "A", isSpecial: false)
-        // 0.26s 后发送卡片 2（队列达到 2 个满额）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
-            simulateSingle("⌘ C", modifiers: [.command], text: "C")
+    private func exportSettings() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "KeyGlow-Settings.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try settings.makeSnapshot().encodedJSON().write(to: url, options: .atomic)
+            statusMessage = "已导出到 \(url.lastPathComponent)"
+        } catch {
+            statusMessage = "导出失败：\(error.localizedDescription)"
         }
-        // 0.52s 后发送卡片 3（卡片 1 从左侧平滑推出，只保留 2 个）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.52) {
-            simulateSingle("Esc", modifiers: [], text: "Esc", isSpecial: true)
+    }
+
+    private func importSettings() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let snapshot = try SettingsSnapshot.decode(data)
+            withAnimation { settings.apply(snapshot) }
+            statusMessage = "已导入 \(url.lastPathComponent)"
+        } catch {
+            statusMessage = "导入失败：\(error.localizedDescription)"
         }
     }
 }

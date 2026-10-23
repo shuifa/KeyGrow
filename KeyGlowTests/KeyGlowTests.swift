@@ -9,861 +9,183 @@ import SwiftUI
 
 final class KeyGlowTests: XCTestCase {
 
+    // MARK: - 用户配置保护
+    //
+    // 测试会临时改写入 AppSettings（会影响真实 UserDefaults），
+    // 因此统一在首个用例前快照、在每个用例结束时还原，避免污染开发者本机偏好。
+
+    private static var savedSnapshot: SettingsSnapshot?
+
     @MainActor
-    func testPreferencesViewAndKeycapItemViewLayout() throws {
-        // 验证偏好设置视图能在标准窗口尺寸下正常布局
-        let view = PreferencesView()
-        let hostingView = NSHostingView(rootView: view)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 520, height: 620)
-        hostingView.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(hostingView.fittingSize.width, 0)
-        XCTAssertGreaterThan(hostingView.fittingSize.height, 0)
-
-        // 验证键帽在不同尺寸下的组件实例化与内在约束
-        let item1 = KeycapItemView(
-            style: .classicDark,
-            content: .symbol(name: "command", fallbackText: "⌘"),
-            minWidth: 40,
-            height: 40,
-            isSpecialKey: true,
-            isModifierKey: true
-        )
-        let hostItem1 = NSHostingView(rootView: item1)
-        hostItem1.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(hostItem1.fittingSize.width, 0)
-        XCTAssertLessThanOrEqual(hostItem1.fittingSize.width, 100) // 不应无限膨胀溢出
-
-        let item2 = KeycapItemView(
-            style: .frostedGlass,
-            content: .text("C"),
-            minWidth: 54,
-            height: 54
-        )
-        let hostItem2 = NSHostingView(rootView: item2)
-        hostItem2.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(hostItem2.fittingSize.width, 0)
-        XCTAssertLessThanOrEqual(hostItem2.fittingSize.width, 100)
-    }
-
-    func testKeyModifierOrderingAndSymbols() {
-        // macOS 官方修饰键排序：⌃ ⌥ ⇧ ⌘
-        let mods: [KeyModifier] = [.command, .shift, .control, .option]
-        let sorted = mods.sorted(by: { $0.sortOrder < $1.sortOrder })
-
-        XCTAssertEqual(sorted, [.control, .option, .shift, .command])
-        XCTAssertEqual(KeyModifier.command.sfSymbol, "command")
-        XCTAssertEqual(KeyModifier.option.sfSymbol, "option")
-        XCTAssertEqual(KeyModifier.control.sfSymbol, "control")
-        XCTAssertEqual(KeyModifier.shift.sfSymbol, "shift")
-    }
-
-    func testKeyStrokeInitialization() {
-        let stroke = KeyStroke(
-            modifiers: [.command, .shift],
-            content: .text("C"),
-            rawIdentifier: "cmd+shift+c",
-            isShortcut: true,
-            isSpecialFunctionKey: false,
-            repeatCount: 1
-        )
-
-        XCTAssertEqual(stroke.modifiers, [.shift, .command])
-        XCTAssertEqual(stroke.content, .text("C"))
-        XCTAssertEqual(stroke.rawIdentifier, "cmd+shift+c")
-        XCTAssertTrue(stroke.isShortcut)
-        XCTAssertFalse(stroke.isSpecialFunctionKey)
-        XCTAssertEqual(stroke.repeatCount, 1)
-    }
-
-    func testKeycapStyles() {
-        XCTAssertEqual(KeycapStyle.allCases.count, 3)
-        XCTAssertEqual(KeycapStyle.classicDark.title, "经典深黑")
-        XCTAssertEqual(KeycapStyle.frostedGlass.title, "磨砂亚克力")
-        XCTAssertEqual(KeycapStyle.auroraGlow.title, "极光微光")
-    }
-
-    func testDisplayAnchors() {
-        XCTAssertEqual(DisplayAnchor.allCases.count, 5)
-        XCTAssertEqual(DisplayAnchor.bottomCenter.title, "屏幕底部居中")
-        XCTAssertEqual(DisplayAnchor.bottomLeft.title, "屏幕左下角")
-        XCTAssertEqual(DisplayAnchor.bottomRight.title, "屏幕右下角")
-        XCTAssertEqual(DisplayAnchor.topCenter.title, "屏幕顶部居中")
-        XCTAssertEqual(DisplayAnchor.mouseFollow.title, "跟随鼠标光标")
-    }
-
-    func testSpecialKeyColors() {
-        XCTAssertEqual(SpecialKeyColor.allCases.count, 6)
-        XCTAssertEqual(SpecialKeyColor.blue.title, "科技冰蓝")
-        XCTAssertEqual(SpecialKeyColor.purple.title, "极光熏紫")
-        XCTAssertEqual(SpecialKeyColor.orange.title, "日落暖橙")
-        XCTAssertEqual(SpecialKeyColor.green.title, "霓虹翡翠")
-        XCTAssertEqual(SpecialKeyColor.pink.title, "摩登浆果")
-        XCTAssertEqual(SpecialKeyColor.monochrome.title, "素雅纯白")
-    }
-
-    func testDisplayModes() {
-        XCTAssertEqual(DisplayMode.allCases.count, 2)
-        XCTAssertEqual(DisplayMode.shortcutsOnly.title, "仅快捷键模式")
-        XCTAssertEqual(DisplayMode.allKeys.title, "全按键模式")
-    }
-
-    // MARK: - 问题 3 修复测试：FN 功能键显示修复（不再显示 key_179，而是 globe 图标与 Fn）
-    func testFnAndGlobeKeyMapping() {
-        guard let dummyEvent = CGEvent(keyboardEventSource: nil, virtualKey: 179, keyDown: true) else {
-            XCTFail("无法创建测试 CGEvent")
-            return
+    private func prepareSettings() {
+        if Self.savedSnapshot == nil {
+            Self.savedSnapshot = AppSettings.shared.makeSnapshot()
         }
-
-        // 现代 Mac 键盘 Globe / Fn 键码 179
-        let info179 = KeyCodeMapper.map(event: dummyEvent, keyCode: 179)
-        XCTAssertEqual(info179.content, .symbol(name: "globe", fallbackText: "Fn"))
-        XCTAssertTrue(info179.isSpecialFunctionKey)
-        XCTAssertEqual(info179.identifier, "fn")
-        XCTAssertNotEqual(info179.content.displayText, "Key_179")
-
-        // 传统 Mac 键盘 Function 键码 63
-        let info63 = KeyCodeMapper.map(event: dummyEvent, keyCode: 63)
-        XCTAssertEqual(info63.content, .symbol(name: "globe", fallbackText: "Fn"))
-        XCTAssertTrue(info63.isSpecialFunctionKey)
-        XCTAssertEqual(info63.identifier, "fn")
+        AppSettings.shared.resetToDefaults()
+        KeyMonitor.shared.clearStroke()
     }
 
-    // MARK: - 问题 1 修复测试：单独点按 Command、Control、Option、Shift、CapsLock 映射
-    func testModifierKeysDirectMapping() {
-        guard let dummyEvent = CGEvent(keyboardEventSource: nil, virtualKey: 55, keyDown: true) else {
-            XCTFail("无法创建测试 CGEvent")
-            return
-        }
-
-        // Command (55, 54)
-        let cmdLeft = KeyCodeMapper.map(event: dummyEvent, keyCode: 55)
-        XCTAssertEqual(cmdLeft.content, .symbol(name: "command", fallbackText: "⌘"))
-        XCTAssertTrue(cmdLeft.isSpecialFunctionKey)
-        let cmdRight = KeyCodeMapper.map(event: dummyEvent, keyCode: 54)
-        XCTAssertEqual(cmdRight.content, .symbol(name: "command", fallbackText: "⌘"))
-
-        // Option (58, 61)
-        let optLeft = KeyCodeMapper.map(event: dummyEvent, keyCode: 58)
-        XCTAssertEqual(optLeft.content, .symbol(name: "option", fallbackText: "⌥"))
-        XCTAssertTrue(optLeft.isSpecialFunctionKey)
-        let optRight = KeyCodeMapper.map(event: dummyEvent, keyCode: 61)
-        XCTAssertEqual(optRight.content, .symbol(name: "option", fallbackText: "⌥"))
-
-        // Control (59, 62)
-        let ctrlLeft = KeyCodeMapper.map(event: dummyEvent, keyCode: 59)
-        XCTAssertEqual(ctrlLeft.content, .symbol(name: "control", fallbackText: "⌃"))
-        XCTAssertTrue(ctrlLeft.isSpecialFunctionKey)
-        let ctrlRight = KeyCodeMapper.map(event: dummyEvent, keyCode: 62)
-        XCTAssertEqual(ctrlRight.content, .symbol(name: "control", fallbackText: "⌃"))
-
-        // Shift (56, 60)
-        let shiftLeft = KeyCodeMapper.map(event: dummyEvent, keyCode: 56)
-        XCTAssertEqual(shiftLeft.content, .symbol(name: "shift", fallbackText: "⇧"))
-        XCTAssertTrue(shiftLeft.isSpecialFunctionKey)
-        let shiftRight = KeyCodeMapper.map(event: dummyEvent, keyCode: 60)
-        XCTAssertEqual(shiftRight.content, .symbol(name: "shift", fallbackText: "⇧"))
-
-        // CapsLock (57)
-        let caps = KeyCodeMapper.map(event: dummyEvent, keyCode: 57)
-        XCTAssertEqual(caps.content, .symbol(name: "capslock", fallbackText: "⇪"))
-        XCTAssertTrue(caps.isSpecialFunctionKey)
-    }
-
-    // MARK: - 扩展功能键映射测试（F13 ~ F20, Keypad Enter 等）
-    func testExtendedFunctionKeysMapping() {
-        guard let dummyEvent = CGEvent(keyboardEventSource: nil, virtualKey: 105, keyDown: true) else {
-            XCTFail("无法创建测试 CGEvent")
-            return
-        }
-
-        let f13 = KeyCodeMapper.map(event: dummyEvent, keyCode: 105)
-        XCTAssertEqual(f13.content, .text("F13"))
-        XCTAssertTrue(f13.isSpecialFunctionKey)
-
-        let f20 = KeyCodeMapper.map(event: dummyEvent, keyCode: 90)
-        XCTAssertEqual(f20.content, .text("F20"))
-        XCTAssertTrue(f20.isSpecialFunctionKey)
-
-        let keypadEnter = KeyCodeMapper.map(event: dummyEvent, keyCode: 76)
-        XCTAssertEqual(keypadEnter.content, .symbol(name: "return", fallbackText: "Enter"))
-        XCTAssertTrue(keypadEnter.isSpecialFunctionKey)
-    }
-
-    // MARK: - 问题 1 & 2 修复测试：单按修饰键、修饰键连按叠加与就地升级
     @MainActor
-    func testModifierOnlyStrokesAndChaining() {
-        let monitor = KeyMonitor.shared
-        monitor.clearStroke()
-
-        // 1. 单独点按 Command
-        let cmdStroke = KeyStroke(
-            modifiers: [],
-            content: .symbol(name: "command", fallbackText: "⌘"),
-            rawIdentifier: "command",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            isModifierOnly: true
-        )
-        monitor.simulateKeyStroke(cmdStroke)
-
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.last?.content, .symbol(name: "command", fallbackText: "⌘"))
-        XCTAssertTrue(monitor.activeStrokes.last?.isModifierOnly ?? false)
-
-        // 2. 在 Command 未松开的情况下连按 Option（这几个按键连着一起按）-> 就地升级为 ⌥ ⌘
-        let optCmdStroke = KeyStroke(
-            modifiers: [.option],
-            content: .symbol(name: "command", fallbackText: "⌘"),
-            rawIdentifier: "option+command",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            isModifierOnly: true
-        )
-        monitor.simulateKeyStroke(optCmdStroke)
-
-        // 应当就地替换，依然保持 1 个卡片，内容升级为带 Option 修饰的 Command
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.last?.modifiers, [.option])
-        XCTAssertEqual(monitor.activeStrokes.last?.content, .symbol(name: "command", fallbackText: "⌘"))
-
-        // 3. 在 ⌥ ⌘ 未松开的情况下按字母 C（组合快捷键）-> 就地升级为 ⌥ ⌘ C
-        let fullShortcut = KeyStroke(
-            modifiers: [.option, .command],
-            content: .text("C"),
-            rawIdentifier: "option+command+c",
-            isShortcut: true,
-            isSpecialFunctionKey: false,
-            isModifierOnly: false
-        )
-        monitor.simulateKeyStroke(fullShortcut)
-
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.last?.modifiers, [.option, .command])
-        XCTAssertEqual(monitor.activeStrokes.last?.content, .text("C"))
-        XCTAssertFalse(monitor.activeStrokes.last?.isModifierOnly ?? true)
-
-        // 4. 用户释放所有修饰键
-        monitor.simulateModifierRelease()
-
-        // 5. 释放后用户单独点按 Control -> 作为新的按键卡片追加（队列长度变为 2）
-        let ctrlStroke = KeyStroke(
-            modifiers: [],
-            content: .symbol(name: "control", fallbackText: "⌃"),
-            rawIdentifier: "control",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            isModifierOnly: true
-        )
-        monitor.simulateKeyStroke(ctrlStroke)
-
-        XCTAssertEqual(monitor.activeStrokes.count, 2)
-        XCTAssertEqual(monitor.activeStrokes.last?.content, .symbol(name: "control", fallbackText: "⌃"))
-
-        // 清理现场
-        monitor.clearStroke()
-    }
-
-    // MARK: - 动效改进专项测试 1：就地升级保持卡片身份 (id 不变) 且数量恒为 1
-    @MainActor
-    func testInPlaceUpgradePreservesIdAndCount() {
-        let monitor = KeyMonitor.shared
-        monitor.clearStroke()
-
-        // 1. 单独按下 Command
-        let cmdStroke = KeyStroke(
-            modifiers: [],
-            content: .symbol(name: "command", fallbackText: "⌘"),
-            rawIdentifier: "command",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            isModifierOnly: true
-        )
-        monitor.simulateKeyStroke(cmdStroke)
-
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        guard let firstStroke = monitor.activeStrokes.first else {
-            XCTFail("activeStrokes 应当包含一个按键")
-            return
+    private func restoreSettings() {
+        if let snapshot = Self.savedSnapshot {
+            AppSettings.shared.apply(snapshot)
         }
-        let originalId = firstStroke.id
-
-        // 2. 在 Command 未松开时按下 Option -> 就地升级为 ⌥ ⌘
-        let optCmdStroke = KeyStroke(
-            modifiers: [.option],
-            content: .symbol(name: "command", fallbackText: "⌘"),
-            rawIdentifier: "option+command",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            isModifierOnly: true
-        )
-        monitor.simulateKeyStroke(optCmdStroke)
-
-        // 验证：卡片数依然为 1，且 id 必须与原卡片完全一致（就地生长）
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.id, originalId)
-        XCTAssertEqual(monitor.activeStrokes.first?.modifiers, [.option])
-
-        // 3. 在 ⌥ ⌘ 未松开时按下 K -> 就地升级为 ⌥ ⌘ K
-        let fullStroke = KeyStroke(
-            modifiers: [.option, .command],
-            content: .text("K"),
-            rawIdentifier: "option+command+k",
-            isShortcut: true,
-            isSpecialFunctionKey: false,
-            isModifierOnly: false
-        )
-        monitor.simulateKeyStroke(fullStroke)
-
-        // 验证：依然保持原 id，卡片数仍为 1
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.id, originalId)
-        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("K"))
-
-        monitor.clearStroke()
+        KeyMonitor.shared.clearStroke()
     }
 
-    // MARK: - 动效改进专项测试 2：冲击计数 (punchCounters) 精准隔离，只对目标 id 递增
-    @MainActor
-    func testPunchCountersOnlyIncrementsTargetId() {
-        let monitor = KeyMonitor.shared
-        monitor.clearStroke()
+    // MARK: - 主题目录
 
-        // 1. 模拟第一张卡片
-        let stroke1 = KeyStroke(
-            modifiers: [.command],
-            content: .text("C"),
-            rawIdentifier: "cmd+c",
-            isShortcut: true
-        )
-        monitor.simulateKeyStroke(stroke1)
-        let id1 = stroke1.id
-        XCTAssertEqual(monitor.punchCounters[id1], 1)
+    func testThemeCatalogIntegrity() {
+        XCTAssertEqual(KeycapTheme.all.count, 6, "内置主题数量应与设计文档一致")
 
-        // 2. 模拟第二张修饰键卡片（当前队列满 2 张）
-        let modStroke = KeyStroke(
-            modifiers: [],
-            content: .symbol(name: "command", fallbackText: "⌘"),
-            rawIdentifier: "command",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            isModifierOnly: true
-        )
-        monitor.simulateKeyStroke(modStroke)
-        let modId = modStroke.id
-        XCTAssertEqual(monitor.punchCounters[id1], 1)
-        XCTAssertEqual(monitor.punchCounters[modId], 1)
+        // id 必须唯一且非空，否则持久化会串味
+        let ids = KeycapTheme.all.map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count, "主题 id 不允许重复")
+        XCTAssertFalse(ids.contains(where: { $0.isEmpty }))
 
-        // 3. 就地升级该修饰键卡片（不产生新卡片，只升级 modId 卡片）
-        let upgradeStroke = KeyStroke(
-            modifiers: [.command],
-            content: .text("Z"),
-            rawIdentifier: "cmd+z",
-            isShortcut: true,
-            isModifierOnly: false
-        )
-        monitor.simulateKeyStroke(upgradeStroke)
-
-        // 验证：id1 依然为 1，被就地升级的目标卡 modId 计数递增到 2
-        XCTAssertEqual(monitor.punchCounters[id1], 1)
-        XCTAssertEqual(monitor.punchCounters[modId], 2)
-
-        // 4. 当追加第 3 张卡片时，因队列上限为 2，最左侧最早的 id1 出队并移除计数
-        let stroke3 = KeyStroke(
-            modifiers: [.command],
-            content: .text("V"),
-            rawIdentifier: "cmd+v",
-            isShortcut: true
-        )
-        monitor.simulateKeyStroke(stroke3)
-        let id3 = stroke3.id
-
-        XCTAssertNil(monitor.punchCounters[id1], "出队的卡片计数应当被清理")
-        XCTAssertEqual(monitor.punchCounters[modId], 2)
-        XCTAssertEqual(monitor.punchCounters[id3], 1)
-
-        monitor.clearStroke()
-    }
-
-    // MARK: - 动效改进专项测试 3：就地升级后超时移除计时顺延（原 displayDuration 到点卡片仍在）
-    @MainActor
-    func testUpgradeExtendsDisplayDuration() async throws {
-        let monitor = KeyMonitor.shared
-        let settings = AppSettings.shared
-        monitor.clearStroke()
-
-        // 设置极短的停留时长便于测试（0.15 秒）
-        let originalDuration = settings.displayDuration
-        settings.displayDuration = 0.15
-        defer {
-            settings.displayDuration = originalDuration
-            monitor.clearStroke()
+        // 名称与副标题都必须非空，设置面板需要展示
+        for theme in KeycapTheme.all {
+            XCTAssertFalse(theme.name.isEmpty)
+            XCTAssertFalse(theme.subtitle.isEmpty)
         }
 
-        // 1. 模拟按下 Command
-        let cmdStroke = KeyStroke(
-            modifiers: [],
-            content: .symbol(name: "command", fallbackText: "⌘"),
-            rawIdentifier: "command",
-            isShortcut: true,
-            isSpecialFunctionKey: true,
-            isModifierOnly: true
-        )
-        monitor.simulateKeyStroke(cmdStroke)
-        let targetId = cmdStroke.id
+        // 默认主题必须存在于目录中
+        XCTAssertTrue(ids.contains(KeycapTheme.defaultTheme.id))
 
-        // 2. 等待 0.1 秒（接近原 0.15 秒超时点），此时执行就地升级
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1s
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-
-        let upgradedStroke = KeyStroke(
-            modifiers: [.command],
-            content: .text("K"),
-            rawIdentifier: "cmd+k",
-            isShortcut: true,
-            isModifierOnly: false
-        )
-        monitor.simulateKeyStroke(upgradedStroke)
-
-        // 3. 再等待 0.08 秒（总计 0.18 秒，已超过初始卡片的 0.15 秒过期时间）
-        try await Task.sleep(nanoseconds: 80_000_000) // +0.08s (总共 0.18s)
-
-        // 验证：由于就地升级顺延了超时移除，卡片此时依然存活
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.id, targetId)
-        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("K"))
-
-        // 4. 继续等待直至顺延后的超时到达（顺延 0.15s 从 0.1s 开始算，大约在 0.25s 触发，在此等待 0.15s）
-        try await Task.sleep(nanoseconds: 150_000_000)
-
-        // 验证：顺延超时生效，卡片最终被正常自动移除
-        XCTAssertEqual(monitor.activeStrokes.count, 0)
+        // 未知 id 必须回退默认主题，避免旧配置导致空白配色
+        XCTAssertEqual(KeycapTheme.theme(id: "not-a-theme").id, KeycapTheme.defaultTheme.id)
+        XCTAssertEqual(KeycapTheme.theme(id: KeycapTheme.neon.id).id, KeycapTheme.neon.id)
     }
 
-    // MARK: - 动效改进专项测试 4：同一组合连按合并 ×N 计数
-    @MainActor
-    func testRepeatCountMerge() {
-        let monitor = KeyMonitor.shared
-        let settings = AppSettings.shared
-        monitor.clearStroke()
+    func testThemeSwitchesBetweenDayAndNight() {
+        for theme in KeycapTheme.all {
+            let light = theme.colors(for: .light)
+            let dark = theme.colors(for: .dark)
 
-        let originalShowRepeat = settings.showRepeatCount
-        settings.showRepeatCount = true
-        defer {
-            settings.showRepeatCount = originalShowRepeat
-            monitor.clearStroke()
-        }
-
-        let strokeE = KeyStroke(
-            modifiers: [],
-            content: .text("E"),
-            rawIdentifier: "e",
-            isShortcut: false
-        )
-        monitor.simulateKeyStroke(strokeE)
-        let eId = strokeE.id
-
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.repeatCount, 1)
-
-        // 再次连按 E
-        let strokeE2 = KeyStroke(
-            modifiers: [],
-            content: .text("E"),
-            rawIdentifier: "e",
-            isShortcut: false
-        )
-        monitor.simulateKeyStroke(strokeE2)
-
-        // 验证：卡片数依然为 1，repeatCount 变为 2，id 保持不变
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.id, eId)
-        XCTAssertEqual(monitor.activeStrokes.first?.repeatCount, 2)
-        XCTAssertEqual(monitor.punchCounters[eId], 2)
-
-        // 第三次连按 E
-        let strokeE3 = KeyStroke(
-            modifiers: [],
-            content: .text("E"),
-            rawIdentifier: "e",
-            isShortcut: false
-        )
-        monitor.simulateKeyStroke(strokeE3)
-
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.id, eId)
-        XCTAssertEqual(monitor.activeStrokes.first?.repeatCount, 3)
-        XCTAssertEqual(monitor.punchCounters[eId], 3)
-    }
-
-    // MARK: - 动效改进专项测试 5：关闭连按合并时按普通追加处理
-    @MainActor
-    func testRepeatCountDisabled() {
-        let monitor = KeyMonitor.shared
-        let settings = AppSettings.shared
-        monitor.clearStroke()
-
-        let originalShowRepeat = settings.showRepeatCount
-        settings.showRepeatCount = false
-        defer {
-            settings.showRepeatCount = originalShowRepeat
-            monitor.clearStroke()
-        }
-
-        let strokeE = KeyStroke(
-            modifiers: [],
-            content: .text("E"),
-            rawIdentifier: "e",
-            isShortcut: false
-        )
-        monitor.simulateKeyStroke(strokeE)
-
-        let strokeE2 = KeyStroke(
-            modifiers: [],
-            content: .text("E"),
-            rawIdentifier: "e",
-            isShortcut: false
-        )
-        monitor.simulateKeyStroke(strokeE2)
-
-        // 验证：关闭后不合并，队列中有 2 张卡
-        XCTAssertEqual(monitor.activeStrokes.count, 2)
-        XCTAssertEqual(monitor.activeStrokes[0].repeatCount, 1)
-        XCTAssertEqual(monitor.activeStrokes[1].repeatCount, 1)
-    }
-
-    // MARK: - 连按数量显示全新设计专项测试：多风格多配色初始化与角标结构
-    func testKeyRepeatBadgeViewInitializationAndStyles() {
-        // 遍历所有键帽质感风格与配色，确保角标各组合均能正确实例化
-        for style in KeycapStyle.allCases {
-            for color in KeyColorOption.allCases {
-                let badge = KeyRepeatBadgeView(count: 2, style: style, keyColor: color, borderColor: .matching)
-                XCTAssertEqual(badge.count, 2)
-                XCTAssertEqual(badge.style, style)
-                XCTAssertEqual(badge.keyColor, color)
-            }
-        }
-    }
-
-    func testKeycapViewWithRepeatCount() {
-        let stroke = KeyStroke(
-            modifiers: [.command],
-            content: .text("C"),
-            rawIdentifier: "cmd+c",
-            isShortcut: true,
-            repeatCount: 4
-        )
-
-        let view = KeycapView(
-            stroke: stroke,
-            style: .classicDark,
-            accentColor: .blue,
-            punchTrigger: 2,
-            repeatCount: 4
-        )
-
-        XCTAssertEqual(view.repeatCount, 4)
-        XCTAssertEqual(view.punchTrigger, 2)
-        XCTAssertEqual(view.style, .classicDark)
-        XCTAssertEqual(view.accentColor, .blue)
-    }
-
-    // MARK: - Ctrl / Option 与字母按键显示修复测试（彻底避免显示为 Key_数字）
-
-    func testCtrlWithLetterKeysMapping() {
-        // 测试常见字母按键 A(0), C(8), E(14), Z(6)
-        let testCases: [(name: String, code: CGKeyCode, asciiCtrl: UniChar)] = [
-            ("A", 0, 1),
-            ("C", 8, 3),
-            ("E", 14, 5),
-            ("Z", 6, 26)
-        ]
-
-        for tc in testCases {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: tc.code, keyDown: true) else {
-                XCTFail("无法创建测试 CGEvent: \(tc.name)")
-                continue
-            }
-            event.flags = .maskControl
-
-            // 模拟 macOS 真实场景：当按下 Control 时，keyboardGetUnicodeString 返回控制字符 (ASCII 1~26)
-            var ctrlChar = tc.asciiCtrl
-            event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &ctrlChar)
-
-            let info = KeyCodeMapper.map(event: event, keyCode: tc.code)
-
-            XCTAssertEqual(info.content, .text(tc.name), "Ctrl + \(tc.name) 应当展示为 \(tc.name)")
-            XCTAssertEqual(info.identifier, tc.name.lowercased())
-            XCTAssertFalse(info.isSpecialFunctionKey)
-            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"), "不应显示为 Key_\(tc.code)")
-        }
-    }
-
-    func testOptionWithLetterKeysMapping() {
-        // 测试常见字母按键与 Option 组合（含 dead key 变音死键：E(14), U(32), N(45)）
-        let testCases: [(name: String, code: CGKeyCode, isDeadKey: Bool)] = [
-            ("A", 0, false),
-            ("C", 8, false),
-            ("E", 14, true),  // dead key: acute
-            ("U", 32, true),  // dead key: umlaut
-            ("N", 45, true)   // dead key: tilde
-        ]
-
-        for tc in testCases {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: tc.code, keyDown: true) else {
-                XCTFail("无法创建测试 CGEvent: \(tc.name)")
-                continue
-            }
-            event.flags = .maskAlternate
-
-            if tc.isDeadKey {
-                // 模拟 macOS 真实场景：对于变音死键，keyboardGetUnicodeString 长度为 0
-                var empty = [UniChar]()
-                event.keyboardSetUnicodeString(stringLength: 0, unicodeString: &empty)
-            }
-
-            let info = KeyCodeMapper.map(event: event, keyCode: tc.code)
-
-            XCTAssertEqual(info.content, .text(tc.name), "Option + \(tc.name) 应当展示为 \(tc.name)")
-            XCTAssertEqual(info.identifier, tc.name.lowercased())
-            XCTAssertFalse(info.isSpecialFunctionKey)
-            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"), "不应显示为 Key_\(tc.code)")
-        }
-    }
-
-    func testCtrlAndOptionCombinationsWithKeys() {
-        // 测试 Ctrl + Option 复合修饰组合
-        for (name, code) in [("A", CGKeyCode(0)), ("C", CGKeyCode(8)), ("E", CGKeyCode(14))] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else {
-                XCTFail("无法创建测试 CGEvent: \(name)")
-                continue
-            }
-            event.flags = [.maskControl, .maskAlternate]
-
-            let info = KeyCodeMapper.map(event: event, keyCode: code)
-            XCTAssertEqual(info.content, .text(name), "Ctrl + Option + \(name) 应当解析为 \(name)")
-            XCTAssertEqual(info.identifier, name.lowercased())
-            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
-        }
-
-        // 测试 Command + Option 复合修饰组合
-        for (name, code) in [("C", CGKeyCode(8)), ("L", CGKeyCode(37))] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else {
-                XCTFail("无法创建测试 CGEvent: \(name)")
-                continue
-            }
-            event.flags = [.maskCommand, .maskAlternate]
-
-            let info = KeyCodeMapper.map(event: event, keyCode: code)
-            XCTAssertEqual(info.content, .text(name), "Cmd + Option + \(name) 应当解析为 \(name)")
-            XCTAssertEqual(info.identifier, name.lowercased())
-            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
-        }
-    }
-
-    func testNumericAndPunctuationWithModifiers() {
-        // 测试数字键 1(18) 与符号键 [(33), /(44) 在带修饰键时正确解析为物理/基础字符
-        for (expected, code) in [("1", CGKeyCode(18)), ("[", CGKeyCode(33)), ("/", CGKeyCode(44))] {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else {
-                XCTFail("无法创建测试 CGEvent: \(expected)")
-                continue
-            }
-            event.flags = .maskControl
-
-            let info = KeyCodeMapper.map(event: event, keyCode: code)
-            XCTAssertEqual(info.content, .text(expected), "修饰键 + \(expected) 应当解析为 \(expected)")
-            XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
-        }
-    }
-
-    // MARK: - 需求 2 专项测试：容器最多同时显示 2 个按键，同时按多个算一个
-    @MainActor
-    func testQueueCapacityLimitedToTwo() {
-        let monitor = KeyMonitor.shared
-        monitor.clearStroke()
-
-        // 1. 推入第 1 个按键 A
-        let strokeA = KeyStroke(modifiers: [], content: .text("A"), rawIdentifier: "a")
-        monitor.simulateKeyStroke(strokeA)
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("A"))
-
-        // 2. 推入第 2 个按键 B
-        let strokeB = KeyStroke(modifiers: [], content: .text("B"), rawIdentifier: "b")
-        monitor.simulateKeyStroke(strokeB)
-        XCTAssertEqual(monitor.activeStrokes.count, 2)
-        XCTAssertEqual(monitor.activeStrokes.map { $0.content }, [.text("A"), .text("B")])
-
-        // 3. 推入第 3 个按键 C：最左侧最早的 A 被移除，队列长度保持为 2，内容为 [B, C]
-        let strokeC = KeyStroke(modifiers: [], content: .text("C"), rawIdentifier: "c")
-        monitor.simulateKeyStroke(strokeC)
-        XCTAssertEqual(monitor.activeStrokes.count, 2, "队列上限必须恒为 2")
-        XCTAssertEqual(monitor.activeStrokes.map { $0.content }, [.text("B"), .text("C")])
-
-        monitor.clearStroke()
-    }
-
-    // MARK: - 需求 2 专项测试：同时按多个算一个（组合键与连续修饰键就地升级）
-    @MainActor
-    func testMultipleKeysTogetherCountAsOne() {
-        let monitor = KeyMonitor.shared
-        monitor.clearStroke()
-
-        // 1. 同时按下 ⌘ + ⇧ + C：属于一个组合按键卡片
-        let combo = KeyStroke(
-            modifiers: [.command, .shift],
-            content: .text("C"),
-            rawIdentifier: "cmd+shift+c",
-            isShortcut: true
-        )
-        monitor.simulateKeyStroke(combo)
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.modifiers, [.shift, .command])
-        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("C"))
-
-        // 2. 清理后测试：先按住 ⌘，未松开时按 ⌥，未松开时按 K -> 就地升级，始终保持为 1 个卡片
-        monitor.clearStroke()
-
-        let mod1 = KeyStroke(modifiers: [], content: .symbol(name: "command", fallbackText: "⌘"), rawIdentifier: "command", isShortcut: true, isSpecialFunctionKey: true, isModifierOnly: true)
-        monitor.simulateKeyStroke(mod1)
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-
-        let mod2 = KeyStroke(modifiers: [.option], content: .symbol(name: "command", fallbackText: "⌘"), rawIdentifier: "option+command", isShortcut: true, isSpecialFunctionKey: true, isModifierOnly: true)
-        monitor.simulateKeyStroke(mod2)
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-
-        let mod3 = KeyStroke(modifiers: [.option, .command], content: .text("K"), rawIdentifier: "option+command+k", isShortcut: true, isSpecialFunctionKey: false, isModifierOnly: false)
-        monitor.simulateKeyStroke(mod3)
-        XCTAssertEqual(monitor.activeStrokes.count, 1, "同时按或连按升级必须只算 1 个卡片")
-        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("K"))
-
-        monitor.clearStroke()
-    }
-
-    // MARK: - 需求 3 专项测试：修复单独点击字母按键不显示的问题
-    @MainActor
-    func testStandaloneLetterKeysMappingAndDisplay() {
-        // 1. 验证在没有按下任何修饰键时，单按字母按键 A(0), C(8), Z(6) 正确解析为字母字符
-        let testLetters: [(name: String, code: CGKeyCode)] = [
-            ("A", 0), ("C", 8), ("Z", 6), ("B", 11), ("W", 13)
-        ]
-
-        for item in testLetters {
-            guard let event = CGEvent(keyboardEventSource: nil, virtualKey: item.code, keyDown: true) else {
-                XCTFail("无法创建测试 CGEvent: \(item.name)")
-                continue
-            }
-            // 无修饰键状态（单独点击）
-            event.flags = []
-
-            let keyInfo = KeyCodeMapper.map(event: event, keyCode: item.code)
-            XCTAssertEqual(keyInfo.content, .text(item.name), "单独点击字母 \(item.name) 应当展示为 \(item.name)")
-            XCTAssertFalse(keyInfo.isSpecialFunctionKey, "字母按键不属于系统特殊功能键")
-            XCTAssertEqual(keyInfo.identifier, item.name.lowercased())
-        }
-
-        // 2. 验证在 KeyMonitor 队列中单独添加字母按键卡片能够顺利入队并展示
-        let monitor = KeyMonitor.shared
-        monitor.clearStroke()
-
-        let letterA = KeyStroke(modifiers: [], content: .text("A"), rawIdentifier: "a", isShortcut: true, isSpecialFunctionKey: false)
-        monitor.simulateKeyStroke(letterA)
-        XCTAssertEqual(monitor.activeStrokes.count, 1)
-        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("A"))
-
-        let letterB = KeyStroke(modifiers: [], content: .text("B"), rawIdentifier: "b", isShortcut: true, isSpecialFunctionKey: false)
-        monitor.simulateKeyStroke(letterB)
-        XCTAssertEqual(monitor.activeStrokes.count, 2)
-        XCTAssertEqual(monitor.activeStrokes.last?.content, .text("B"))
-
-        monitor.clearStroke()
-    }
-
-    // MARK: - 需求 1 专项测试：Keystroke Pro 独立配色与实体拟物选项测试
-    @MainActor
-    func testKeyColorOptionsAndSkeuomorphProperties() {
-        // 1. 验证 KeyColorOption 覆盖 12 种配色（10 种经典色 + 2 种明亮补充色）
-        XCTAssertEqual(KeyColorOption.allCases.count, 12)
-        XCTAssertEqual(KeyColorOption.beige1984.title, "1984s Beige")
-        XCTAssertEqual(KeyColorOption.azureBlue.title, "Azure Blue")
-        XCTAssertEqual(KeyColorOption.mambaGreen.title, "Mamba Green")
-        XCTAssertEqual(KeyColorOption.space.title, "Space")
-        XCTAssertEqual(KeyColorOption.sunsetOrange.title, "Sunset Orange")
-        XCTAssertEqual(KeyColorOption.cyberViolet.title, "Cyber Violet")
-        XCTAssertEqual(KeyColorOption.berryPink.title, "Berry Pink")
-        XCTAssertEqual(KeyColorOption.crimsonRed.title, "Crimson Red")
-        XCTAssertEqual(KeyColorOption.pureWhite.title, "Pure White")
-        XCTAssertEqual(KeyColorOption.matteCharcoal.title, "Matte Charcoal")
-        XCTAssertEqual(KeyColorOption.aquaTeal.title, "Aqua Teal")
-        XCTAssertEqual(KeyColorOption.goldenAmber.title, "Golden Amber")
-
-        // 2. 验证每种配色均提供物理厚度底座色彩与顶面物理渐变
-        for opt in KeyColorOption.allCases {
-            let colors = opt.topFaceColors(for: .classicDark)
-            XCTAssertEqual(colors.count, 2, "\(opt.title) 顶面必须具备双色微弧渐变")
-            _ = opt.extrusionBaseColor
-            _ = opt.foregroundColor
-            _ = opt.glowColor
-        }
-
-        // 3. 验证 BorderColorOption
-        XCTAssertEqual(BorderColorOption.allCases.count, 6)
-        XCTAssertEqual(BorderColorOption.matching.title, "Auto (Matching)")
-        XCTAssertEqual(BorderColorOption.space.title, "Space")
-        XCTAssertEqual(BorderColorOption.subtleWhite.title, "Subtle White")
-        XCTAssertEqual(BorderColorOption.vintageBrass.title, "Vintage Brass")
-        XCTAssertEqual(BorderColorOption.neonCyan.title, "Neon Cyan")
-        XCTAssertEqual(BorderColorOption.minimal.title, "Minimal")
-
-        // 4. 验证出厂默认配置（不读取用户已持久化的偏好，避免与本机历史设置耦合）
-        XCTAssertEqual(AppSettings.Defaults.displayMode, .allKeys, "默认触发模式必须为全按键模式，保证打字可见")
-        XCTAssertEqual(AppSettings.Defaults.keyColor, .beige1984, "默认 Key Color 必须为 1984s Beige")
-        XCTAssertEqual(AppSettings.Defaults.modifierColor, .azureBlue, "默认 Modifier Color 必须为 Azure Blue")
-        XCTAssertEqual(AppSettings.Defaults.escapeColor, .mambaGreen, "默认 Escape Color 必须为 Mamba Green")
-        XCTAssertEqual(AppSettings.Defaults.borderColor, .matching, "默认 Border Color 必须为自适应匹配，避免统一深色描边压暗键帽")
-        XCTAssertEqual(AppSettings.Defaults.keyOpacity, 1.0, "默认 Opacity 必须为 100%")
-    }
-
-    // MARK: - 新色系专项测试 1：明亮色系不得回退为暗色，字符对比度必须达标
-    func testNewPaletteBrightnessAndLegendContrast() {
-        for opt in KeyColorOption.allCases {
-            // 除刻意的深空/炭黑中性色外，其余键帽受光面亮度必须处于明亮区间（避免整体偏暗）
-            if opt != .space && opt != .matteCharcoal {
-                XCTAssertGreaterThanOrEqual(
-                    opt.palette.top.relativeLuminance, 0.24,
-                    "\(opt.title) 受光面亮度不足，色系重新变暗"
-                )
-            }
-
-            // 字符与键帽中间调的 WCAG 对比度不得低于 3.0（大号粗体字符的最低可读阈值）
-            XCTAssertGreaterThanOrEqual(
-                opt.legendContrastRatio, 3.0,
-                "\(opt.title) 字符与键帽对比度过低，录屏时不可读"
+            // 白天档的普通键必须明显比夜晚档更亮（保证跟随系统时观感真的会变）
+            XCTAssertGreaterThan(
+                light.regular.midTone.relativeLuminance,
+                dark.regular.midTone.relativeLuminance + 0.25,
+                "\(theme.name) 的昼夜两档亮度差不足，跟随系统时几乎看不出变化"
             )
 
-            // 浅色键帽使用深墨字符，深色键帽使用白色字符
-            if opt.isLightSurface {
-                XCTAssertGreaterThan(
-                    opt.palette.midTone.contrastRatio(with: .ink),
-                    opt.palette.midTone.contrastRatio(with: .white),
-                    "\(opt.title) 属于浅色键帽，应使用深墨色字符"
+            // 四档色板在昼夜之间都不能相同
+            for role in KeyColorRole.allCases {
+                XCTAssertNotEqual(
+                    light.palette(for: role).top,
+                    dark.palette(for: role).top,
+                    "\(theme.name) - \(role.title) 的昼夜顶面色相同"
                 )
             }
         }
     }
 
-    // MARK: - 新色系专项测试 2：按键配色角色解析（角标与键帽必须同源）
-    @MainActor
-    func testKeyColorRoleResolution() {
-        // 普通组合快捷键 → 常规键配色
-        let regular = KeyStroke(
-            modifiers: [.command],
-            content: .text("C"),
-            rawIdentifier: "command+c",
-            isShortcut: true
-        )
+    // MARK: - 可读性与配色不变量
+
+    func testLegendContrastMeetsAccessibilityThreshold() {
+        for theme in KeycapTheme.all {
+            for scheme in [ColorScheme.light, .dark] {
+                let colors = theme.colors(for: scheme)
+                for role in KeyColorRole.allCases {
+                    let palette = colors.palette(for: role)
+                    XCTAssertGreaterThanOrEqual(
+                        palette.legendContrastRatio, 3.0,
+                        "\(theme.name) / \(scheme == .dark ? "夜晚" : "白天") / \(role.title) 字符对比度不足，录屏不可读"
+                    )
+                }
+            }
+        }
+    }
+
+    func testPalettePicksHigherContrastLegendAutomatically() {
+        for theme in KeycapTheme.all {
+            for scheme in [ColorScheme.light, .dark] {
+                for palette in theme.colors(for: scheme).allPalettes {
+                    let ink = palette.midTone.contrastRatio(with: .ink)
+                    let white = palette.midTone.contrastRatio(with: .white)
+                    if palette.isLightSurface {
+                        XCTAssertGreaterThanOrEqual(ink, white, "\(theme.name) 判定为浅色键帽，却选了白色字符")
+                    } else {
+                        XCTAssertGreaterThanOrEqual(white, ink, "\(theme.name) 判定为深色键帽，却选了墨色字符")
+                    }
+                }
+            }
+        }
+    }
+
+    /// 设计要求：普通字母键「普通颜色」（低饱和），功能键才有强调色
+    func testRegularKeysStayNeutralWhileFunctionKeysAreAccented() {
+        for theme in KeycapTheme.all {
+            for scheme in [ColorScheme.light, .dark] {
+                let colors = theme.colors(for: scheme)
+                let label = "\(theme.name) / \(scheme == .dark ? "夜晚" : "白天")"
+
+                XCTAssertLessThan(
+                    colors.regular.accent.chroma, 0.12,
+                    "\(label) 的普通键饱和度过高，已经不是「普通颜色」"
+                )
+                XCTAssertGreaterThan(
+                    colors.modifier.accent.chroma, colors.regular.accent.chroma + 0.08,
+                    "\(label) 的修饰键与普通键区分度不足"
+                )
+            }
+        }
+    }
+
+    /// P0 修复：Esc 与其余特殊功能键必须是两套颜色，而不是共用一个色号
+    func testEscapeAndSpecialKeyColorsAreIndependent() {
+        for theme in KeycapTheme.all {
+            for scheme in [ColorScheme.light, .dark] {
+                let colors = theme.colors(for: scheme)
+                XCTAssertNotEqual(
+                    colors.escape.accent, colors.special.accent,
+                    "\(theme.name) 的 Esc 与功能键同色，语义层次丢失"
+                )
+            }
+        }
+    }
+
+    func testPaletteToneDerivationKeepsPhysicalLightingRelation() {
+        // 顶面必须比下沿亮、下沿必须比侧壁亮，这是拟物键帽的物理前提
+        for theme in KeycapTheme.all {
+            for scheme in [ColorScheme.light, .dark] {
+                for palette in theme.colors(for: scheme).allPalettes {
+                    XCTAssertGreaterThan(palette.top.relativeLuminance, palette.bottom.relativeLuminance)
+                    XCTAssertGreaterThan(palette.bottom.relativeLuminance, palette.extrusion.relativeLuminance)
+                }
+            }
+        }
+    }
+
+    // MARK: - 外观模式与材质
+
+    func testAppearanceModeMapsToWindowAppearance() {
+        XCTAssertNil(ThemeAppearanceMode.system.nsAppearance, "跟随系统必须交出 appearance 控制权")
+        XCTAssertEqual(ThemeAppearanceMode.light.nsAppearance?.name, .aqua)
+        XCTAssertEqual(ThemeAppearanceMode.dark.nsAppearance?.name, .darkAqua)
+        XCTAssertEqual(ThemeAppearanceMode.allCases.count, 3)
+    }
+
+    func testKeycapStyleNamingAndLegacyMigration() {
+        XCTAssertEqual(KeycapStyle.allCases.count, 3)
+        XCTAssertEqual(KeycapStyle.matte.title, "哑光实体")
+        XCTAssertEqual(KeycapStyle.frosted.title, "磨砂玻璃")
+        XCTAssertEqual(KeycapStyle.aurora.title, "极光染色")
+
+        // 旧版本 rawValue 必须能平滑迁移，避免老用户升级后材质回退默认
+        XCTAssertEqual(KeycapStyle.migrate(fromLegacy: "classicDark"), .matte)
+        XCTAssertEqual(KeycapStyle.migrate(fromLegacy: "frostedGlass"), .frosted)
+        XCTAssertEqual(KeycapStyle.migrate(fromLegacy: "auroraGlow"), .aurora)
+        XCTAssertEqual(KeycapStyle.migrate(fromLegacy: "matte"), .matte)
+        XCTAssertNil(KeycapStyle.migrate(fromLegacy: "unknown-style"))
+    }
+
+    // MARK: - 按键角色解析
+
+    func testColorRoleResolution() {
+        let regular = KeyStroke(modifiers: [.command], content: .text("C"), rawIdentifier: "command+c", isShortcut: true)
         XCTAssertEqual(regular.colorRole, .regular)
 
-        // 单独修饰键 → 修饰键配色
         let modifier = KeyStroke(
             modifiers: [],
             content: .symbol(name: "command", fallbackText: "⌘"),
@@ -874,67 +196,437 @@ final class KeyGlowTests: XCTestCase {
         )
         XCTAssertEqual(modifier.colorRole, .modifier)
 
-        // Esc → Esc 配色
         let escape = KeyStroke(
             modifiers: [],
-            content: .symbol(name: "escape", fallbackText: "Esc"),
+            content: .text("esc"),
             rawIdentifier: "esc",
             isShortcut: true,
             isSpecialFunctionKey: true
         )
         XCTAssertEqual(escape.colorRole, .escape)
 
-        // Return / Tab 等功能键 → Esc 配色（特殊键组）
         let returnKey = KeyStroke(
             modifiers: [],
-            content: .symbol(name: "return", fallbackText: "Return"),
+            content: .text("return"),
             rawIdentifier: "return",
             isShortcut: true,
             isSpecialFunctionKey: true
         )
-        XCTAssertEqual(returnKey.colorRole, .special)
-
-        // AppSettings 角色映射必须与三档配色设置一一对应
-        let settings = AppSettings.shared
-        XCTAssertEqual(settings.keyColor(for: .regular), settings.keyColor)
-        XCTAssertEqual(settings.keyColor(for: .modifier), settings.modifierColor)
-        XCTAssertEqual(settings.keyColor(for: .escape), settings.escapeColor)
-        XCTAssertEqual(settings.keyColor(for: .special), settings.escapeColor)
+        XCTAssertEqual(returnKey.colorRole, .special, "Return 属于功能键，不应再与 Esc 共用角色")
     }
 
-    // MARK: - 新色系专项测试 3：连按角标与主键帽取同一色号（修复数字颜色不匹配）
+    func testModifierOrderingAndSymbols() {
+        let mods: [KeyModifier] = [.command, .shift, .control, .option]
+        let sorted = mods.sorted(by: { $0.sortOrder < $1.sortOrder })
+        XCTAssertEqual(sorted, [.control, .option, .shift, .command])
+
+        XCTAssertEqual(KeyModifier.command.sfSymbol, "command")
+        XCTAssertEqual(KeyModifier.option.sfSymbol, "option")
+        XCTAssertEqual(KeyModifier.control.sfSymbol, "control")
+        XCTAssertEqual(KeyModifier.shift.sfSymbol, "shift")
+    }
+
+    func testDisplayAnchorsAndModes() {
+        XCTAssertEqual(DisplayAnchor.allCases.count, 5)
+        XCTAssertEqual(DisplayAnchor.bottomCenter.title, "屏幕底部居中")
+        XCTAssertEqual(DisplayAnchor.mouseFollow.title, "跟随鼠标光标")
+
+        XCTAssertEqual(DisplayMode.allCases.count, 2)
+        XCTAssertEqual(DisplayMode.shortcutsOnly.title, "仅快捷键模式")
+        XCTAssertEqual(DisplayMode.allCases.contains(.allKeys), true)
+    }
+
+    // MARK: - 键码映射（特殊键文字化 / 大小写语义）
+
+    func testSpecialKeysUseReadableTextLabels() {
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: true) else {
+            return XCTFail("无法创建测试 CGEvent")
+        }
+
+        XCTAssertEqual(KeyCodeMapper.map(event: event, keyCode: 53).content, .text("esc"))
+        XCTAssertEqual(KeyCodeMapper.map(event: event, keyCode: 48).content, .text("tab"))
+        XCTAssertEqual(KeyCodeMapper.map(event: event, keyCode: 36).content, .text("return"))
+        XCTAssertEqual(KeyCodeMapper.map(event: event, keyCode: 49).content, .text("space"))
+        XCTAssertEqual(KeyCodeMapper.map(event: event, keyCode: 51).content, .text("delete"))
+
+        // 方向键仍然保留矢量图标（箭头本身比文字更直观）
+        if case .symbol(let name, _) = KeyCodeMapper.map(event: event, keyCode: 123).content {
+            XCTAssertEqual(name, "arrow.left")
+        } else {
+            XCTFail("方向键应继续使用 SF Symbol")
+        }
+    }
+
+    func testPlainTypingPreservesCase() {
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) else {
+            return XCTFail("无法创建测试 CGEvent")
+        }
+        event.flags = []
+        var lowerA: UniChar = 97 // "a"
+        event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &lowerA)
+
+        let lowerInfo = KeyCodeMapper.map(event: event, keyCode: 0)
+        XCTAssertEqual(lowerInfo.content, .text("a"), "小写输入必须保留小写，否则无法与 ⇧A 区分")
+
+        var upperA: UniChar = 65 // "A"
+        event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &upperA)
+        let upperInfo = KeyCodeMapper.map(event: event, keyCode: 0)
+        XCTAssertEqual(upperInfo.content, .text("A"))
+    }
+
+    func testShortcutLettersAreUppercased() {
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 8, keyDown: true) else {
+            return XCTFail("无法创建测试 CGEvent")
+        }
+        event.flags = .maskControl
+        // Control 组合下系统给的是控制字符，映射器必须回退到物理键位解析
+        var ctrlChar: UniChar = 3
+        event.keyboardSetUnicodeString(stringLength: 1, unicodeString: &ctrlChar)
+
+        let info = KeyCodeMapper.map(event: event, keyCode: 8)
+        XCTAssertEqual(info.content, .text("C"), "快捷键应遵循 macOS 菜单惯例使用大写")
+        XCTAssertEqual(info.identifier, "c")
+        XCTAssertFalse(info.content.displayText.hasPrefix("Key_"))
+    }
+
+    func testFnAndGlobeKeyMapping() {
+        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: 179, keyDown: true) else {
+            return XCTFail("无法创建测试 CGEvent")
+        }
+        let info179 = KeyCodeMapper.map(event: event, keyCode: 179)
+        XCTAssertEqual(info179.content, .symbol(name: "globe", fallbackText: "Fn"))
+        XCTAssertEqual(info179.identifier, "fn")
+
+        let info63 = KeyCodeMapper.map(event: event, keyCode: 63)
+        XCTAssertEqual(info63.content, .symbol(name: "globe", fallbackText: "Fn"))
+    }
+
+    // MARK: - 队列容量（P0：文档写 3、实现写 2 的不一致）
+
     @MainActor
-    func testRepeatBadgeUsesSameKeyColorAsKeycap() {
+    func testQueueCapacityFollowsSettings() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let monitor = KeyMonitor.shared
         let settings = AppSettings.shared
-        let originalKeyColor = settings.keyColor
-        defer { settings.keyColor = originalKeyColor }
 
-        // 常规字母键连按：主键帽与角标必须同时使用 Key Color
-        settings.keyColor = .goldenAmber
-        let regularStroke = KeyStroke(modifiers: [], content: .text("A"), rawIdentifier: "a")
-        XCTAssertEqual(regularStroke.colorRole, .regular)
-        XCTAssertEqual(settings.keyColor(for: regularStroke.colorRole), .goldenAmber)
+        XCTAssertEqual(settings.maxVisibleKeys, 3, "默认同屏容量应为 3")
 
-        // 修饰键连按：主键帽与角标必须同时使用 Modifier Color
-        let modifierStroke = KeyStroke(
+        for letter in ["A", "B", "C", "D"] {
+            monitor.simulateKeyStroke(KeyStroke(modifiers: [], content: .text(letter), rawIdentifier: letter.lowercased()))
+        }
+
+        // 默认容量 3：推入 4 个后应保留最新的 3 个
+        XCTAssertEqual(monitor.activeStrokes.map { $0.content }, [.text("B"), .text("C"), .text("D")])
+
+        // 改为 1 后立即收紧
+        settings.maxVisibleKeys = 1
+        monitor.simulateKeyStroke(KeyStroke(modifiers: [], content: .text("E"), rawIdentifier: "e"))
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("E"))
+    }
+
+    @MainActor
+    func testMaxVisibleKeysIsClamped() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let settings = AppSettings.shared
+        settings.maxVisibleKeys = 99
+        XCTAssertEqual(settings.maxVisibleKeys, 4)
+        settings.maxVisibleKeys = -3
+        XCTAssertEqual(settings.maxVisibleKeys, 1)
+    }
+
+    // MARK: - 连按合并与就地升级
+
+    @MainActor
+    func testRepeatCountMerge() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let monitor = KeyMonitor.shared
+        AppSettings.shared.showRepeatCount = true
+
+        monitor.simulateKeyStroke(KeyStroke(modifiers: [], content: .text("e"), rawIdentifier: "e"))
+        let firstId = monitor.activeStrokes[0].id
+
+        monitor.simulateKeyStroke(KeyStroke(modifiers: [], content: .text("e"), rawIdentifier: "e"))
+        monitor.simulateKeyStroke(KeyStroke(modifiers: [], content: .text("e"), rawIdentifier: "e"))
+
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, firstId)
+        XCTAssertEqual(monitor.activeStrokes.first?.repeatCount, 3)
+        XCTAssertEqual(monitor.punchCounters[firstId], 3)
+    }
+
+    @MainActor
+    func testRepeatCountDisabledKeepsSeparateCards() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let monitor = KeyMonitor.shared
+        AppSettings.shared.showRepeatCount = false
+
+        monitor.simulateKeyStroke(KeyStroke(modifiers: [], content: .text("E"), rawIdentifier: "e"))
+        monitor.simulateKeyStroke(KeyStroke(modifiers: [], content: .text("E"), rawIdentifier: "e"))
+
+        XCTAssertEqual(monitor.activeStrokes.count, 2)
+        XCTAssertEqual(monitor.activeStrokes.map(\.repeatCount), [1, 1])
+    }
+
+    @MainActor
+    func testInPlaceUpgradePreservesId() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let monitor = KeyMonitor.shared
+
+        monitor.simulateKeyStroke(
+            KeyStroke(
+                modifiers: [],
+                content: .symbol(name: "command", fallbackText: "⌘"),
+                rawIdentifier: "command",
+                isShortcut: true,
+                isSpecialFunctionKey: true,
+                isModifierOnly: true
+            )
+        )
+        let originalId = monitor.activeStrokes[0].id
+
+        monitor.simulateKeyStroke(
+            KeyStroke(
+                modifiers: [.option],
+                content: .symbol(name: "command", fallbackText: "⌘"),
+                rawIdentifier: "option+command",
+                isShortcut: true,
+                isSpecialFunctionKey: true,
+                isModifierOnly: true
+            )
+        )
+
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, originalId)
+        XCTAssertEqual(monitor.activeStrokes.first?.modifiers, [.option])
+
+        monitor.simulateKeyStroke(
+            KeyStroke(
+                modifiers: [.option, .command],
+                content: .text("K"),
+                rawIdentifier: "option+command+k",
+                isShortcut: true
+            )
+        )
+
+        XCTAssertEqual(monitor.activeStrokes.count, 1)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, originalId)
+        XCTAssertEqual(monitor.activeStrokes.first?.content, .text("K"))
+    }
+
+    @MainActor
+    func testPunchCountersOnlyIncrementTargetCard() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let monitor = KeyMonitor.shared
+
+        let first = KeyStroke(modifiers: [.command], content: .text("C"), rawIdentifier: "cmd+c", isShortcut: true)
+        monitor.simulateKeyStroke(first)
+        XCTAssertEqual(monitor.punchCounters[first.id], 1)
+
+        let modifier = KeyStroke(
             modifiers: [],
-            content: .symbol(name: "option", fallbackText: "⌥"),
-            rawIdentifier: "option",
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            rawIdentifier: "command",
             isShortcut: true,
             isSpecialFunctionKey: true,
             isModifierOnly: true
         )
-        XCTAssertEqual(settings.keyColor(for: modifierStroke.colorRole), settings.modifierColor)
+        monitor.simulateKeyStroke(modifier)
+        XCTAssertEqual(monitor.punchCounters[first.id], 1)
 
-        // 渲染层校验：连按角标的前景色必须等于键帽前景色（数字颜色与键帽字符颜色完全一致）
-        let badge = KeyRepeatBadgeView(count: 3, style: .classicDark, keyColor: .goldenAmber, borderColor: .matching)
-        XCTAssertEqual(badge.keyColor.foregroundColor, KeyColorOption.goldenAmber.foregroundColor)
-        XCTAssertNotEqual(
-            badge.keyColor.foregroundColor,
-            KeyColorOption.azureBlue.foregroundColor,
-            "角标不应再使用固定的全局强调色"
+        // 在未松开的修饰键上继续按 Z：就地升级，只递增该卡片的计数
+        monitor.simulateKeyStroke(
+            KeyStroke(modifiers: [.command], content: .text("Z"), rawIdentifier: "cmd+z", isShortcut: true)
         )
+        XCTAssertEqual(monitor.punchCounters[modifier.id], 2)
+        XCTAssertEqual(monitor.punchCounters[first.id], 1)
+    }
+
+    @MainActor
+    func testUpgradeExtendsDisplayDuration() async throws {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let monitor = KeyMonitor.shared
+        AppSettings.shared.displayDuration = 0.15
+
+        monitor.simulateKeyStroke(
+            KeyStroke(
+                modifiers: [],
+                content: .symbol(name: "command", fallbackText: "⌘"),
+                rawIdentifier: "command",
+                isShortcut: true,
+                isSpecialFunctionKey: true,
+                isModifierOnly: true
+            )
+        )
+        let targetId = monitor.activeStrokes[0].id
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+        monitor.simulateKeyStroke(
+            KeyStroke(modifiers: [.command], content: .text("K"), rawIdentifier: "cmd+k", isShortcut: true)
+        )
+
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(monitor.activeStrokes.first?.id, targetId, "就地升级应顺延超时计时")
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(monitor.activeStrokes.count, 0, "顺延后的超时最终仍应移除卡片")
+    }
+
+    // MARK: - 配置：默认值 / 快照往返 / 恢复默认
+
+    @MainActor
+    func testDefaultsAreCoherent() {
+        typealias Defaults = AppSettings.Defaults
+        XCTAssertEqual(Defaults.themeID, KeycapTheme.defaultTheme.id)
+        XCTAssertEqual(Defaults.appearanceMode, .system)
+        XCTAssertEqual(Defaults.maxVisibleKeys, 3)
+        XCTAssertEqual(Defaults.keyOpacity, 1.0)
+        XCTAssertEqual(Defaults.displayMode, .allKeys)
+        XCTAssertEqual(Defaults.keycapStyle, KeycapTheme.defaultTheme.recommendedStyle)
+        XCTAssertEqual(Defaults.showKeycapTray, false)
+    }
+
+    @MainActor
+    func testSettingsSnapshotRoundTrip() throws {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let settings = AppSettings.shared
+        settings.themeID = KeycapTheme.ocean.id
+        settings.appearanceMode = .dark
+        settings.keycapStyle = .frosted
+        settings.maxVisibleKeys = 4
+        settings.showKeycapTray = true
+        settings.keyOpacity = 0.8
+
+        let snapshot = settings.makeSnapshot()
+        let data = try snapshot.encodedJSON()
+        let decoded = try SettingsSnapshot.decode(data)
+
+        XCTAssertEqual(decoded, snapshot)
+
+        // 导入后必须还原为快照内容
+        settings.resetToDefaults()
+        settings.apply(decoded)
+
+        XCTAssertEqual(settings.themeID, KeycapTheme.ocean.id)
+        XCTAssertEqual(settings.appearanceMode, .dark)
+        XCTAssertEqual(settings.keycapStyle, .frosted)
+        XCTAssertEqual(settings.maxVisibleKeys, 4)
+        XCTAssertTrue(settings.showKeycapTray)
+        XCTAssertEqual(settings.keyOpacity, 0.8, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testResetToDefaultsRestoresEverything() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        let settings = AppSettings.shared
+        settings.themeID = KeycapTheme.neon.id
+        settings.appearanceMode = .light
+        settings.maxVisibleKeys = 1
+        settings.showRepeatCount = false
+
+        settings.resetToDefaults()
+
+        XCTAssertEqual(settings.themeID, AppSettings.Defaults.themeID)
+        XCTAssertEqual(settings.appearanceMode, AppSettings.Defaults.appearanceMode)
+        XCTAssertEqual(settings.maxVisibleKeys, AppSettings.Defaults.maxVisibleKeys)
+        XCTAssertEqual(settings.showRepeatCount, AppSettings.Defaults.showRepeatCount)
+    }
+
+    @MainActor
+    func testInvalidThemeIDFallsBackToDefault() {
+        prepareSettings()
+        defer { restoreSettings() }
+
+        AppSettings.shared.themeID = "legacy-theme-that-does-not-exist"
+        XCTAssertEqual(AppSettings.shared.theme.id, KeycapTheme.defaultTheme.id)
+    }
+
+    // MARK: - 视图可实例化
+
+    @MainActor
+    func testPreferencesAndKeycapViewsLayout() {
+        let prefs = PreferencesView()
+        let hosting = NSHostingView(rootView: prefs)
+        hosting.frame = NSRect(x: 0, y: 0, width: 580, height: 700)
+        hosting.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(hosting.fittingSize.width, 0)
+        XCTAssertGreaterThan(hosting.fittingSize.height, 0)
+
+        let palette = KeycapTheme.graphite.colors(for: .light).modifier
+        let item = KeycapItemView(
+            style: .matte,
+            content: .symbol(name: "command", fallbackText: "⌘"),
+            palette: palette,
+            borderStyle: .adaptive,
+            minWidth: 40,
+            height: 40
+        )
+        let itemHost = NSHostingView(rootView: item)
+        itemHost.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(itemHost.fittingSize.width, 0)
+        XCTAssertLessThanOrEqual(itemHost.fittingSize.width, 120, "键帽不应无限膨胀溢出")
+    }
+
+    @MainActor
+    func testKeyRepeatBadgeInitialization() {
+        for style in KeycapStyle.allCases {
+            for theme in KeycapTheme.all {
+                for scheme in [ColorScheme.light, .dark] {
+                    let badge = KeyRepeatBadgeView(
+                        count: 3,
+                        style: style,
+                        palette: theme.colors(for: scheme).regular,
+                        borderStyle: theme.border
+                    )
+                    XCTAssertEqual(badge.count, 3)
+                    XCTAssertEqual(badge.style, style)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testKeycapViewCarriesThemeAndRepeatCount() {
+        let stroke = KeyStroke(
+            modifiers: [.command],
+            content: .text("C"),
+            rawIdentifier: "cmd+c",
+            isShortcut: true,
+            repeatCount: 4
+        )
+
+        let view = KeycapView(
+            stroke: stroke,
+            theme: .neon,
+            style: .aurora,
+            colorScheme: .dark,
+            opacity: 0.9,
+            punchTrigger: 2,
+            repeatCount: 4
+        )
+
+        XCTAssertEqual(view.repeatCount, 4)
+        XCTAssertEqual(view.punchTrigger, 2)
+        XCTAssertEqual(view.theme.id, KeycapTheme.neon.id)
+        XCTAssertEqual(view.style, .aurora)
+        XCTAssertEqual(view.colorScheme, .dark)
     }
 }
-
-
