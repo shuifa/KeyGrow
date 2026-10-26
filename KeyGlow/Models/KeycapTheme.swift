@@ -437,8 +437,40 @@ extension KeycapTheme {
         border: .neon
     )
 
+    /// 夜丁香 · Noctis Lilac 色谱
+    ///
+    /// 取自 Noctis Lilac 终端配色：强调紫 `#7060EB` 落在修饰键档，Esc 取该方案的 bright magenta
+    /// （`#DF769B`）作英雄键，其余档位依次分给它的 blue / cyan / green / yellow 四支；
+    /// 字母底档沿用其紫灰中性色（`#B8B5C5` 一族），使整块键盘带一点冷紫的夜色倾向。
+    /// 明度沿用七档色相的统一规律（浅色档 0.845–0.900 / 深色档 0.700–0.752），
+    /// 只把色相与色度换成 Noctis Lilac 的口味，因此七档之间的亮度关系与另两套主题一致。
+    public static let lilac = KeycapTheme(
+        id: "lilac",
+        name: "夜丁香",
+        subtitle: "玫瑰粉 · 深空蓝 · 湖青 · 苔绿 · 丁香紫 · 蜜金 · 雾白",
+        light: ThemeColorSet(
+            escape: KeyColorRGB(hex: 0xFCB1DF),
+            structural: KeyColorRGB(hex: 0xADD7FF),
+            function: KeyColorRGB(hex: 0x92E4E8),
+            arrow: KeyColorRGB(hex: 0xA9E7BD),
+            modifier: KeyColorRGB(hex: 0xC6C6FF),
+            digit: KeyColorRGB(hex: 0xFFCD88),
+            alpha: KeyColorRGB(hex: 0xDCDCED)
+        ),
+        dark: ThemeColorSet(
+            escape: KeyColorRGB(hex: 0xDE76AE),
+            structural: KeyColorRGB(hex: 0x69A9E9),
+            function: KeyColorRGB(hex: 0x42BBC1),
+            arrow: KeyColorRGB(hex: 0x70BD8C),
+            modifier: KeyColorRGB(hex: 0x9891F6),
+            digit: KeyColorRGB(hex: 0xDC9D39),
+            alpha: KeyColorRGB(hex: 0xABABC9)
+        ),
+        border: .neon
+    )
+
     /// 全部内置主题（顺序即设置面板展示顺序）
-    public static let all: [KeycapTheme] = [petals, starfield]
+    public static let all: [KeycapTheme] = [petals, starfield, lilac]
 
     /// 出厂默认主题
     public static let defaultTheme: KeycapTheme = petals
