@@ -9,8 +9,8 @@ import UniformTypeIdentifiers
 
 /// 偏好设置面板
 ///
-/// 0.12 起的信息架构：把原来单列滚动堆叠的 6 大块，重组为「外观 / 行为 / 高级」三页，
-/// 并且配色不再逐类调节，而是从内置主题里选一套（每套自带白天 / 夜晚两档）。
+/// 0.2 信息架构：材质与显示模式两项设置已移除（材质收敛为唯一实现、显示固定为全按键），
+/// 外观页只保留「主题 / 外观模式 / 尺寸与不透明度」，行为页只保留「显示位置 / 节奏」。
 public struct PreferencesView: View {
     @ObservedObject private var settings = AppSettings.shared
     @Environment(\.colorScheme) private var colorScheme
@@ -68,7 +68,7 @@ public struct PreferencesView: View {
                 .padding(20)
             }
         }
-        .frame(minWidth: 580, minHeight: 700)
+        .frame(minWidth: 580, minHeight: 640)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             settings.checkAccessibility()
@@ -162,7 +162,6 @@ public struct PreferencesView: View {
             previewCard
             themeSection
             appearanceModeSection
-            materialSection
             sizeAndOpacitySection
         }
     }
@@ -185,30 +184,33 @@ public struct PreferencesView: View {
                     .fill(desktopSimulation)
                     .frame(height: 132)
 
-                HStack(spacing: 18) {
+                HStack(spacing: 14) {
                     KeycapView(
                         stroke: sampleStroke([.command], "C", identifier: "cmd+c"),
                         theme: settings.theme,
-                        style: settings.keycapStyle,
                         colorScheme: colorScheme,
                         opacity: settings.keyOpacity
                     )
                     KeycapView(
                         stroke: sampleStroke([], "esc", special: true, identifier: "esc"),
                         theme: settings.theme,
-                        style: settings.keycapStyle,
+                        colorScheme: colorScheme,
+                        opacity: settings.keyOpacity
+                    )
+                    KeycapView(
+                        stroke: sampleStroke([], "7", identifier: "7"),
+                        theme: settings.theme,
                         colorScheme: colorScheme,
                         opacity: settings.keyOpacity
                     )
                     KeycapView(
                         stroke: sampleStroke([], "A", identifier: "a", repeatCount: 3),
                         theme: settings.theme,
-                        style: settings.keycapStyle,
                         colorScheme: colorScheme,
                         opacity: settings.keyOpacity
                     )
                 }
-                .scaleEffect(0.92)
+                .scaleEffect(0.86)
             }
         }
         .padding(14)
@@ -232,7 +234,7 @@ public struct PreferencesView: View {
     }
 
     private var themeSection: some View {
-        cardSection("配色主题", subtitle: "\(KeycapTheme.all.count) 套 · 每套含白天 / 夜晚") {
+        cardSection("配色主题", subtitle: "\(KeycapTheme.all.count) 套 · 每套七档色相 · 含白天 / 夜晚") {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(KeycapTheme.all) { theme in
                     themeCard(theme)
@@ -248,15 +250,13 @@ public struct PreferencesView: View {
         return Button {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
                 settings.themeID = theme.id
-                settings.keycapStyle = theme.recommendedStyle
             }
         } label: {
             VStack(spacing: 8) {
-                // 用主题推荐的材质渲染缩略键帽：卡片预览即"点下去会得到什么"，
-                // 而不是全部套用当前材质导致六套主题看着只差颜色。
+                // 用该主题实际会呈现的四类键帽做缩略：修饰 / 字母 / Esc / 方向键，
+                // 正好覆盖「强调色 → 底色 → 英雄键 → 冷色区」四个远隔的色相
                 HStack(spacing: 4) {
                     KeycapItemView(
-                        style: theme.recommendedStyle,
                         content: .symbol(name: "command", fallbackText: "⌘"),
                         palette: colors.modifier,
                         borderStyle: theme.border,
@@ -264,15 +264,13 @@ public struct PreferencesView: View {
                         height: 32
                     )
                     KeycapItemView(
-                        style: theme.recommendedStyle,
                         content: .text("C"),
-                        palette: colors.regular,
+                        palette: colors.alpha,
                         borderStyle: theme.border,
                         minWidth: 32,
                         height: 32
                     )
                     KeycapItemView(
-                        style: theme.recommendedStyle,
                         content: .text("esc"),
                         palette: colors.escape,
                         borderStyle: theme.border,
@@ -280,9 +278,8 @@ public struct PreferencesView: View {
                         height: 32
                     )
                     KeycapItemView(
-                        style: theme.recommendedStyle,
                         content: .symbol(name: "arrow.left", fallbackText: "←"),
-                        palette: colors.special,
+                        palette: colors.arrow,
                         borderStyle: theme.border,
                         minWidth: 32,
                         height: 32
@@ -290,7 +287,7 @@ public struct PreferencesView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // 昼夜双色卡带：无需切换外观模式，就能对比同一套主题在白天 / 夜晚下的完整明度骨架
+                // 昼夜双色卡带：无需切换外观模式，就能对比同一套主题在白天 / 夜晚下的七档色相
                 VStack(spacing: 3) {
                     colorwayBand(theme.colors(for: .light), tag: "日")
                     colorwayBand(theme.colors(for: .dark), tag: "夜")
@@ -331,7 +328,7 @@ public struct PreferencesView: View {
         .help("\(theme.name) · \(theme.subtitle)")
     }
 
-    /// 单条色卡带：底色 → 结构 → 强调 → 英雄键 四个色块，代表该外观档的四档取色
+    /// 单条色卡带：按「英雄键 → 结构 → 功能 → 方向 → 修饰 → 数字 → 字母」七档依次排布
     private func colorwayBand(_ colors: ThemeColorSet, tag: String) -> some View {
         HStack(spacing: 6) {
             Text(tag)
@@ -363,55 +360,6 @@ public struct PreferencesView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
         }
-    }
-
-    private var materialSection: some View {
-        cardSection("键帽材质", subtitle: "与主题解耦，可单独覆盖") {
-            HStack(spacing: 10) {
-                ForEach(KeycapStyle.allCases) { style in
-                    materialButton(style)
-                }
-            }
-        }
-    }
-
-    private func materialButton(_ style: KeycapStyle) -> some View {
-        let isSelected = settings.keycapStyle == style
-        // 用修饰键配色做预览：普通键是中性灰，三种材质的差别会被压得很不明显
-        let palette = settings.theme.colors(for: colorScheme).modifier
-
-        return Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.82)) {
-                settings.keycapStyle = style
-            }
-        } label: {
-            VStack(spacing: 7) {
-                KeycapItemView(
-                    style: style,
-                    content: .symbol(name: "command", fallbackText: "⌘"),
-                    palette: palette,
-                    borderStyle: settings.theme.border,
-                    minWidth: 38,
-                    height: 38
-                )
-                Text(style.title)
-                    .font(.system(size: 11, weight: isSelected ? .bold : .regular))
-                    .foregroundColor(isSelected ? .primary : .secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.10) : Color.primary.opacity(0.035))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(style.subtitle)
     }
 
     private var sizeAndOpacitySection: some View {
@@ -461,20 +409,6 @@ public struct PreferencesView: View {
 
     private var behaviorTab: some View {
         VStack(spacing: 16) {
-            cardSection("触发模式") {
-                Picker("", selection: $settings.displayMode) {
-                    ForEach(DisplayMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-
-                Text(settings.displayMode.description)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-
             cardSection("显示位置") {
                 Picker("", selection: $settings.anchor) {
                     ForEach(DisplayAnchor.allCases) { anchor in
@@ -667,7 +601,6 @@ public struct PreferencesView: View {
             modifiers: modifiers,
             content: .text(text),
             rawIdentifier: identifier,
-            isShortcut: !modifiers.isEmpty || special,
             isSpecialFunctionKey: special,
             repeatCount: repeatCount
         )
@@ -680,7 +613,6 @@ public struct PreferencesView: View {
             modifiers: modifiers,
             content: .text(text),
             rawIdentifier: id,
-            isShortcut: true,
             isSpecialFunctionKey: isSpecial
         )
         KeyMonitor.shared.simulateKeyStroke(stroke)

@@ -8,8 +8,8 @@ import Combine
 
 /// 全局应用配置与状态管理
 ///
-/// 配色体系自 0.12 起改为「主题制」：不再让用户逐类指定键帽颜色，
-/// 而是从内置主题中选择一套（每套主题自带白天 / 夜晚两套完整配色）。
+/// 0.2 起配置面收窄：材质与显示模式两项设置已移除——
+/// 材质收敛为唯一实现，显示模式固定为「全按键」，两者都不再是用户可调项。
 @MainActor
 public final class AppSettings: ObservableObject {
     public static let shared = AppSettings()
@@ -17,8 +17,6 @@ public final class AppSettings: ObservableObject {
     // MARK: - Keys for UserDefaults
     private enum Keys {
         static let isEnabled = "keyglow.isEnabled"
-        static let displayMode = "keyglow.displayMode"
-        static let keycapStyle = "keyglow.keycapStyle"
         static let anchor = "keyglow.anchor"
         static let displayDuration = "keyglow.displayDuration"
         static let sizeScale = "keyglow.sizeScale"
@@ -31,31 +29,26 @@ public final class AppSettings: ObservableObject {
         static let showKeycapTray = "keyglow.showKeycapTray"
         static let schemaVersion = "keyglow.schemaVersion"
 
-        /// 0.11 及以前遗留的逐类配色 key，升级时一次性清除
-        static let legacyColorKeys = [
+        /// 已下线配置项的 key，升级时一次性清除
+        static let retiredKeys = [
+            // 0.11 及以前的逐类配色
             "keyglow.specialKeyColor",
             "keyglow.keyColor",
             "keyglow.modifierColor",
             "keyglow.escapeColor",
-            "keyglow.borderColor"
+            "keyglow.borderColor",
+            // 0.2 移除的材质与显示模式
+            "keyglow.keycapStyle",
+            "keyglow.displayMode"
         ]
     }
 
     /// 当前配置结构版本，用于后续增量迁移
-    private static let currentSchemaVersion = 2
+    private static let currentSchemaVersion = 3
 
     // MARK: - Published Properties
 
     @Published public var isEnabled: Bool {
-        didSet { schedulePersist() }
-    }
-
-    @Published public var displayMode: DisplayMode {
-        didSet { schedulePersist() }
-    }
-
-    /// 键帽材质（与主题解耦：选主题会给推荐材质，用户仍可单独改）
-    @Published public var keycapStyle: KeycapStyle {
         didSet { schedulePersist() }
     }
 
@@ -123,8 +116,6 @@ public final class AppSettings: ObservableObject {
     /// 出厂默认配置（集中定义，避免初始化分支散落魔法值，也便于测试校验）
     public enum Defaults {
         public static let isEnabled = true
-        public static let displayMode: DisplayMode = .allKeys
-        public static let keycapStyle: KeycapStyle = KeycapTheme.defaultTheme.recommendedStyle
         public static let anchor: DisplayAnchor = .bottomCenter
         public static let themeID = KeycapTheme.defaultTheme.id
         public static let appearanceMode: ThemeAppearanceMode = .system
@@ -146,20 +137,6 @@ public final class AppSettings: ObservableObject {
 
         self.isEnabled = defaults.object(forKey: Keys.isEnabled) != nil ? defaults.bool(forKey: Keys.isEnabled) : Defaults.isEnabled
 
-        if let modeRaw = defaults.string(forKey: Keys.displayMode),
-           let mode = DisplayMode(rawValue: modeRaw) {
-            self.displayMode = mode
-        } else {
-            self.displayMode = Defaults.displayMode
-        }
-
-        if let styleRaw = defaults.string(forKey: Keys.keycapStyle),
-           let style = KeycapStyle.migrate(fromLegacy: styleRaw) {
-            self.keycapStyle = style
-        } else {
-            self.keycapStyle = Defaults.keycapStyle
-        }
-
         if let anchorRaw = defaults.string(forKey: Keys.anchor),
            let anchor = DisplayAnchor(rawValue: anchorRaw) {
             self.anchor = anchor
@@ -167,8 +144,8 @@ public final class AppSettings: ObservableObject {
             self.anchor = Defaults.anchor
         }
 
-        // 主题 id：旧版本没有该 key、存的是已下线的主题，或存的是 0.12 的旧 id，
-        // 统一交给 `resolvedID` 解析（含旧 id 迁移），解析不了才回退默认主题
+        // 主题 id：旧版本没有该 key、或存的是已下线的主题，统一交给 `resolvedID` 解析，
+        // 解析不了才回退默认主题
         if let storedTheme = defaults.string(forKey: Keys.themeID) {
             self.themeID = KeycapTheme.resolvedID(storedTheme)
         } else {
@@ -228,8 +205,6 @@ public final class AppSettings: ObservableObject {
 
         let defaults = UserDefaults.standard
         defaults.set(isEnabled, forKey: Keys.isEnabled)
-        defaults.set(displayMode.rawValue, forKey: Keys.displayMode)
-        defaults.set(keycapStyle.rawValue, forKey: Keys.keycapStyle)
         defaults.set(anchor.rawValue, forKey: Keys.anchor)
         defaults.set(themeID, forKey: Keys.themeID)
         defaults.set(appearanceMode.rawValue, forKey: Keys.appearanceMode)
@@ -249,8 +224,9 @@ public final class AppSettings: ObservableObject {
         let schema = defaults.integer(forKey: Keys.schemaVersion)
         guard schema < currentSchemaVersion else { return }
 
-        // 0.11 → 0.12：逐类配色（Key / Modifier / Escape / Border / SpecialKey）全部废弃，改由主题统一管理
-        for key in Keys.legacyColorKeys {
+        // 0.11 → 0.12：逐类配色废弃，改由主题统一管理
+        // 0.2  → 追加：材质与显示模式下线
+        for key in Keys.retiredKeys {
             defaults.removeObject(forKey: key)
         }
         defaults.set(currentSchemaVersion, forKey: Keys.schemaVersion)
@@ -261,8 +237,6 @@ public final class AppSettings: ObservableObject {
     /// 恢复全部出厂设置
     public func resetToDefaults() {
         isEnabled = Defaults.isEnabled
-        displayMode = Defaults.displayMode
-        keycapStyle = Defaults.keycapStyle
         anchor = Defaults.anchor
         themeID = Defaults.themeID
         appearanceMode = Defaults.appearanceMode
@@ -281,8 +255,6 @@ public final class AppSettings: ObservableObject {
         SettingsSnapshot(
             themeID: themeID,
             appearanceMode: appearanceMode,
-            keycapStyle: keycapStyle,
-            displayMode: displayMode,
             anchor: anchor,
             displayDuration: displayDuration,
             sizeScale: sizeScale,
@@ -299,8 +271,6 @@ public final class AppSettings: ObservableObject {
     public func apply(_ snapshot: SettingsSnapshot) {
         if let id = snapshot.themeID { themeID = KeycapTheme.resolvedID(id) }
         if let mode = snapshot.appearanceMode { appearanceMode = mode }
-        if let style = snapshot.keycapStyle { keycapStyle = style }
-        if let mode = snapshot.displayMode { displayMode = mode }
         if let anchor = snapshot.anchor { self.anchor = anchor }
         if let duration = snapshot.displayDuration { displayDuration = min(max(duration, 0.5), 3.0) }
         if let scale = snapshot.sizeScale { sizeScale = min(max(scale, 0.6), 1.8) }
@@ -336,12 +306,11 @@ public final class AppSettings: ObservableObject {
 
 // MARK: - 配置快照
 
-/// 可序列化的配置快照：支持导出 / 导入，用于分享主题与整套参数
+/// 可序列化的配置快照：支持导出 / 导入，用于分享主题与整套参数。
+/// 旧版本导出的 JSON 里多出的 `keycapStyle` / `displayMode` 字段会被解码器自动忽略，导入不会失败。
 public struct SettingsSnapshot: Codable, Equatable, Sendable {
     public var themeID: String?
     public var appearanceMode: ThemeAppearanceMode?
-    public var keycapStyle: KeycapStyle?
-    public var displayMode: DisplayMode?
     public var anchor: DisplayAnchor?
     public var displayDuration: Double?
     public var sizeScale: Double?
@@ -355,8 +324,6 @@ public struct SettingsSnapshot: Codable, Equatable, Sendable {
     public init(
         themeID: String? = nil,
         appearanceMode: ThemeAppearanceMode? = nil,
-        keycapStyle: KeycapStyle? = nil,
-        displayMode: DisplayMode? = nil,
         anchor: DisplayAnchor? = nil,
         displayDuration: Double? = nil,
         sizeScale: Double? = nil,
@@ -369,8 +336,6 @@ public struct SettingsSnapshot: Codable, Equatable, Sendable {
     ) {
         self.themeID = themeID
         self.appearanceMode = appearanceMode
-        self.keycapStyle = keycapStyle
-        self.displayMode = displayMode
         self.anchor = anchor
         self.displayDuration = displayDuration
         self.sizeScale = sizeScale

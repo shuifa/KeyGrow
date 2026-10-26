@@ -9,7 +9,6 @@ import SwiftUI
 public struct KeycapView: View {
     public let stroke: KeyStroke
     public let theme: KeycapTheme
-    public let style: KeycapStyle
     /// 当前渲染外观（由 @Environment(\.colorScheme) 传入，决定取主题的白天档还是夜晚档）
     public let colorScheme: ColorScheme
     public let opacity: Double
@@ -21,7 +20,6 @@ public struct KeycapView: View {
     public init(
         stroke: KeyStroke,
         theme: KeycapTheme = .defaultTheme,
-        style: KeycapStyle = .matte,
         colorScheme: ColorScheme = .light,
         opacity: Double = 1.0,
         punchTrigger: Int = 0,
@@ -29,29 +27,27 @@ public struct KeycapView: View {
     ) {
         self.stroke = stroke
         self.theme = theme
-        self.style = style
         self.colorScheme = colorScheme
         self.opacity = opacity
         self.punchTrigger = punchTrigger
         self.repeatCount = repeatCount
     }
 
-    /// 当前外观下该主题的四档色板
+    /// 当前外观下该主题的七档色板
     private var colorSet: ThemeColorSet {
         theme.colors(for: colorScheme)
     }
 
-    /// 主键位配色（按 Esc / 修饰键 / 特殊功能键 / 普通字符键分别取色）
+    /// 主键位配色（按七档色相角色取色）
     private var mainPalette: KeycapPalette {
         colorSet.palette(for: stroke.colorRole)
     }
 
     public var body: some View {
         HStack(spacing: 4) {
-            // 修饰键列表（⌘ ⌥ ⌃ ⇧ 等，统一采用 Modifier 档配色）
+            // 修饰键列表（⌘ ⌥ ⌃ ⇧ 等，统一采用 modifier 档配色）
             ForEach(stroke.modifiers, id: \.self) { modifier in
                 KeycapItemView(
-                    style: style,
                     content: .symbol(name: modifier.sfSymbol, fallbackText: modifier.glyph),
                     palette: colorSet.modifier,
                     borderStyle: theme.border,
@@ -61,7 +57,6 @@ public struct KeycapView: View {
 
             // 主按键展示
             KeycapItemView(
-                style: style,
                 content: stroke.content,
                 palette: mainPalette,
                 borderStyle: theme.border,
@@ -72,7 +67,6 @@ public struct KeycapView: View {
                 if repeatCount > 1 {
                     KeyRepeatBadgeView(
                         count: repeatCount,
-                        style: style,
                         palette: mainPalette,
                         borderStyle: theme.border
                     )
@@ -109,18 +103,15 @@ public struct KeycapView: View {
 /// 边框沿用主题描边策略，从而保证「键帽是什么颜色，连按数字就是什么颜色」。
 public struct KeyRepeatBadgeView: View {
     public let count: Int
-    public let style: KeycapStyle
     public let palette: KeycapPalette
     public let borderStyle: KeycapBorderStyle
 
     public init(
         count: Int,
-        style: KeycapStyle,
         palette: KeycapPalette,
         borderStyle: KeycapBorderStyle = .adaptive
     ) {
         self.count = count
-        self.style = style
         self.palette = palette
         self.borderStyle = borderStyle
     }
@@ -162,7 +153,7 @@ public struct KeyRepeatBadgeView: View {
                     LinearGradient(
                         colors: [
                             palette.extrusion.mixed(with: .white, ratio: 0.08).color,
-                            palette.extrusion.mixed(with: .black, ratio: 0.30).color
+                            palette.extrusion.mixed(with: .black, ratio: 0.24).color
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -171,13 +162,13 @@ public struct KeyRepeatBadgeView: View {
                 .offset(y: 1.5)
 
             // 顶面底色：直接复用键帽材质背景
-            KeycapFaceBackground(style: style, palette: palette)
+            KeycapFaceBackground(palette: palette)
                 .clipShape(Capsule())
 
             // 顶部受光高光
             LinearGradient(
                 colors: [
-                    Color.white.opacity(palette.isLightSurface ? 0.40 : 0.24),
+                    Color.white.opacity(palette.isLightSurface ? 0.22 : 0.14),
                     Color.clear
                 ],
                 startPoint: .top,

@@ -74,21 +74,7 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // 3. 显示模式切换
-        let modeMenu = NSMenu()
-        for mode in DisplayMode.allCases {
-            let item = NSMenuItem(title: mode.title, action: #selector(selectDisplayMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = mode
-            item.state = settings.displayMode == mode ? .on : .off
-            modeMenu.addItem(item)
-        }
-        let modeSubmenuItem = NSMenuItem(title: "显示模式", action: nil, keyEquivalent: "")
-        modeSubmenuItem.submenu = modeMenu
-        modeSubmenuItem.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
-        menu.addItem(modeSubmenuItem)
-
-        // 4. 主题（一整套配色，含白天 / 夜晚两档）
+        // 3. 主题（一整套七档配色，含白天 / 夜晚两档）
         let themeMenu = NSMenu()
         for theme in KeycapTheme.all {
             let item = NSMenuItem(title: theme.name, action: #selector(selectTheme(_:)), keyEquivalent: "")
@@ -102,7 +88,7 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
         themeSubmenuItem.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: nil)
         menu.addItem(themeSubmenuItem)
 
-        // 5. 外观模式（跟随系统 / 浅色 / 深色）
+        // 4. 外观模式（跟随系统 / 浅色 / 深色）
         let appearanceMenu = NSMenu()
         for mode in ThemeAppearanceMode.allCases {
             let item = NSMenuItem(title: mode.title, action: #selector(selectAppearanceMode(_:)), keyEquivalent: "")
@@ -117,21 +103,7 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
         appearanceSubmenuItem.image = NSImage(systemSymbolName: "circle.lefthalf.filled", accessibilityDescription: nil)
         menu.addItem(appearanceSubmenuItem)
 
-        // 6. 键帽材质
-        let styleMenu = NSMenu()
-        for style in KeycapStyle.allCases {
-            let item = NSMenuItem(title: style.title, action: #selector(selectKeycapStyle(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = style
-            item.state = settings.keycapStyle == style ? .on : .off
-            styleMenu.addItem(item)
-        }
-        let styleSubmenuItem = NSMenuItem(title: "键帽材质", action: nil, keyEquivalent: "")
-        styleSubmenuItem.submenu = styleMenu
-        styleSubmenuItem.image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: nil)
-        menu.addItem(styleSubmenuItem)
-
-        // 7. 显示位置切换
+        // 5. 显示位置切换
         let anchorMenu = NSMenu()
         for anchor in DisplayAnchor.allCases {
             let item = NSMenuItem(title: anchor.title, action: #selector(selectAnchor(_:)), keyEquivalent: "")
@@ -176,31 +148,15 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
         rebuildMenu()
     }
 
-    @objc private func selectDisplayMode(_ sender: NSMenuItem) {
-        if let mode = sender.representedObject as? DisplayMode {
-            AppSettings.shared.displayMode = mode
-            rebuildMenu()
-        }
-    }
-
     @objc private func selectTheme(_ sender: NSMenuItem) {
         guard let themeID = sender.representedObject as? String else { return }
         AppSettings.shared.themeID = themeID
-        // 选择主题时同步推荐材质，用户仍可在偏好设置中单独覆盖
-        AppSettings.shared.keycapStyle = KeycapTheme.theme(id: themeID).recommendedStyle
         rebuildMenu()
     }
 
     @objc private func selectAppearanceMode(_ sender: NSMenuItem) {
         if let mode = sender.representedObject as? ThemeAppearanceMode {
             AppSettings.shared.appearanceMode = mode
-            rebuildMenu()
-        }
-    }
-
-    @objc private func selectKeycapStyle(_ sender: NSMenuItem) {
-        if let style = sender.representedObject as? KeycapStyle {
-            AppSettings.shared.keycapStyle = style
             rebuildMenu()
         }
     }

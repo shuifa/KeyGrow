@@ -59,12 +59,14 @@ public enum KeyDisplayContent: Equatable, Hashable, Sendable {
 }
 
 /// 单次键盘触发的组合或按键对象
+///
+/// 0.2 移除了 `isShortcut`：它是「仅快捷键模式」的过滤依据，显示模式固定为全按键后该字段已无消费者。
+/// `isSpecialFunctionKey` 保留，作为 `colorRole` 对未识别特殊键的兜底归组依据。
 public struct KeyStroke: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let modifiers: [KeyModifier]
     public let content: KeyDisplayContent
     public let rawIdentifier: String
-    public let isShortcut: Bool
     public let isSpecialFunctionKey: Bool
     public let isModifierOnly: Bool
     public var timestamp: Date
@@ -75,7 +77,6 @@ public struct KeyStroke: Identifiable, Equatable, Sendable {
         modifiers: [KeyModifier] = [],
         content: KeyDisplayContent,
         rawIdentifier: String,
-        isShortcut: Bool = false,
         isSpecialFunctionKey: Bool = false,
         isModifierOnly: Bool = false,
         timestamp: Date = Date(),
@@ -86,7 +87,6 @@ public struct KeyStroke: Identifiable, Equatable, Sendable {
         self.modifiers = modifiers.sorted(by: { $0.sortOrder < $1.sortOrder })
         self.content = content
         self.rawIdentifier = rawIdentifier
-        self.isShortcut = isShortcut
         self.isSpecialFunctionKey = isSpecialFunctionKey
         self.isModifierOnly = isModifierOnly
         self.timestamp = timestamp
