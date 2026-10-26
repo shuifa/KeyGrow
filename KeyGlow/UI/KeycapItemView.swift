@@ -7,16 +7,21 @@ import SwiftUI
 
 /// 单个物理质感拟物（Skeuomorph）实体键帽组件
 ///
-/// 自 0.12 起，颜色不再由视图内部猜测，而是由调用方传入 `KeycapPalette`（通常来自当前主题 + 按键角色），
+/// 颜色不再由视图内部猜测，而是由调用方传入 `KeycapPalette`（来自当前主题 + 按键角色），
 /// 视图本身只负责「材质、光照、排版」三件事。
 ///
-/// 0.14 起立体结构改为「单一侧壁轮廓 + 顶面覆盖」：
-/// 旧版把顶面与一块同尺寸的底座错位 3pt 叠放，四个边只有下方露出一点色带，
-/// 读起来更像一张带投影的贴纸；新版把键帽本体画成一个**整体拉长的圆角矩形**（含前壁厚度），
-/// 顶面按水平方向向内收窄后覆盖其上，于是左右两侧的斜壁、底部的前壁都成为真实可见的体块，
-/// 配合「左上来光」的方向光与顶面/前壁交界的折角暗部，形成实体键帽的体积感。
+/// 0.2 材质重构：
+/// 旧版提供哑光 / 磨砂玻璃 / 极光染色三种材质，其中磨砂的 `ultraThinMaterial` 会把主题色洗成灰白、
+/// 极光染色则把键面压暗到原色的 65% 再叠一层染色，两者都让「用户选的颜色」无法忠实呈现。
+/// 新版收敛为**单一材质**，设计目标只有三条：
+///   1. 原色直出：顶面渐变直接取 `palette.top / bottom`，不再叠白色大高光或压暗染色；
+///   2. 明亮优先：提亮幅度收窄、侧壁与折角暗部降到最低，键帽整体比旧版亮一档；
+///   3. 浅色优先：高光只保留顶部一道窄受光带，浅色键帽不会被漂白成一片糊。
+///
+/// 立体结构沿用 0.14 的「单一侧壁轮廓 + 顶面覆盖」：
+/// 键帽本体是一整块拉长的圆角矩形（含前壁厚度），顶面按水平方向向内收窄后覆盖其上，
+/// 于是左右两侧的斜壁、底部的前壁都成为真实可见的体块。
 public struct KeycapItemView: View {
-    public let style: KeycapStyle
     public let content: KeyDisplayContent
     public let palette: KeycapPalette
     public let borderStyle: KeycapBorderStyle
@@ -26,7 +31,6 @@ public struct KeycapItemView: View {
     public var opacity: Double = 1.0
 
     public init(
-        style: KeycapStyle = .matte,
         content: KeyDisplayContent,
         palette: KeycapPalette,
         borderStyle: KeycapBorderStyle = .adaptive,
@@ -34,7 +38,6 @@ public struct KeycapItemView: View {
         height: CGFloat = 54,
         opacity: Double = 1.0
     ) {
-        self.style = style
         self.content = content
         self.palette = palette
         self.borderStyle = borderStyle
@@ -80,9 +83,10 @@ public struct KeycapItemView: View {
     }
 
     /// 侧壁基色：由顶面下沿再压暗派生（而不是直接复用 `extrusion`），
-    /// 使「顶面 → 侧壁」成为连续过渡，避免一圈突兀的深色贴边
+    /// 使「顶面 → 侧壁」成为连续过渡，避免一圈突兀的深色贴边。
+    /// 压暗幅度较旧版收窄，避免明亮键帽被一圈重色边包住而显脏。
     private var wallBaseColor: KeyColorRGB {
-        palette.bottom.mixed(with: .black, ratio: palette.isLightSurface ? 0.11 : 0.28)
+        palette.bottom.mixed(with: .black, ratio: palette.isLightSurface ? 0.10 : 0.20)
     }
 
     /// SF Symbols 各自的光学包围盒并不一致（⌃ 明显偏小、⌘ 偏大），
@@ -112,9 +116,9 @@ public struct KeycapItemView: View {
             .opacity(opacity)
             // 三层投影：彩色环境光晕 → 大范围柔和接触影 → 紧贴底沿的锐利投影，
             // 首层负责让键帽"落在"主题色的环境里，后两层负责把键帽压实在桌面上
-            .shadow(color: palette.glowColor, radius: 4, x: 0, y: 2)
-            .shadow(color: Color.black.opacity(0.16), radius: 7, x: 1, y: 5)
-            .shadow(color: Color.black.opacity(0.30), radius: 1.4, x: 0, y: 1.2)
+            .shadow(color: palette.glowColor, radius: 3, x: 0, y: 2)
+            .shadow(color: Color.black.opacity(0.14), radius: 6, x: 1, y: 4)
+            .shadow(color: Color.black.opacity(0.26), radius: 1.2, x: 0, y: 1)
     }
 
     // MARK: - 内部图标/文本呈现
@@ -167,9 +171,9 @@ public struct KeycapItemView: View {
     private var sideWallGradient: LinearGradient {
         LinearGradient(
             stops: [
-                .init(color: wallBaseColor.mixed(with: .white, ratio: 0.08).color, location: 0.0),
+                .init(color: wallBaseColor.mixed(with: .white, ratio: 0.06).color, location: 0.0),
                 .init(color: wallBaseColor.color, location: 0.86),
-                .init(color: wallBaseColor.mixed(with: .black, ratio: 0.30).color, location: 1.0)
+                .init(color: wallBaseColor.mixed(with: .black, ratio: 0.22).color, location: 1.0)
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -180,9 +184,9 @@ public struct KeycapItemView: View {
     private var sideWallDirectionalLight: LinearGradient {
         LinearGradient(
             stops: [
-                .init(color: Color.white.opacity(palette.isLightSurface ? 0.10 : 0.09), location: 0.0),
-                .init(color: .clear, location: 0.30),
-                .init(color: Color.black.opacity(palette.isLightSurface ? 0.11 : 0.18), location: 1.0)
+                .init(color: Color.white.opacity(palette.isLightSurface ? 0.09 : 0.07), location: 0.0),
+                .init(color: .clear, location: 0.32),
+                .init(color: Color.black.opacity(palette.isLightSurface ? 0.09 : 0.15), location: 1.0)
             ],
             startPoint: .leading,
             endPoint: .trailing
@@ -191,80 +195,55 @@ public struct KeycapItemView: View {
 
     /// 顶面：材质底色 + 碟面光影 + 前壁折角 + 倒角描边
     private var topFaceLayer: some View {
-        KeycapFaceBackground(style: style, palette: palette)
+        KeycapFaceBackground(palette: palette)
             .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-            .overlay(concaveDishOverlay)
+            .overlay(dishOverlay)
             .overlay(frontEdgeCrease, alignment: .bottom)
             .overlay(borderHighlight)
     }
 
-    // MARK: - 拟物顶面微弧碟面层（Concave Dish Overlay）
+    // MARK: - 拟物顶面微弧碟面层
+    //
+    // 唯一克制原则：这里所有白色叠加都是为了「让顶面看起来是一块有弧度的塑料」，
+    // 而不是为了提亮颜色。旧版 0.40 的白色高光会把上半键面漂白，彩色键帽因此显脏；
+    // 新版压到 0.18 以内，颜色由 `palette.top` 自己说话。
 
-    @ViewBuilder
-    private var concaveDishOverlay: some View {
-        switch style {
-        case .matte:
-            ZStack {
-                // 顶部微弧受光面
-                LinearGradient(
-                    stops: [
-                        .init(color: Color.white.opacity(palette.isLightSurface ? 0.40 : 0.32), location: 0.0),
-                        .init(color: Color.white.opacity(palette.isLightSurface ? 0.10 : 0.07), location: 0.38),
-                        .init(color: Color.clear, location: 0.72),
-                        .init(color: Color.black.opacity(palette.isLightSurface ? 0.035 : 0.10), location: 1.0)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-
-                // 左上角柔和镜面反射
-                RadialGradient(
-                    colors: [
-                        Color.white.opacity(palette.isLightSurface ? 0.26 : 0.14),
-                        Color.clear
-                    ],
-                    center: .topLeading,
-                    startRadius: 0,
-                    endRadius: round(height * 0.62)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-
-                // 中央内凹碟面光影
-                RadialGradient(
-                    colors: [
-                        Color.black.opacity(palette.isLightSurface ? 0.018 : 0.06),
-                        Color.clear
-                    ],
-                    center: .center,
-                    startRadius: 2,
-                    endRadius: round(height * 0.52)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-            }
-
-        case .frosted:
-            ZStack {
-                LinearGradient(
-                    colors: [Color.white.opacity(palette.isLightSurface ? 0.18 : 0.26), Color.clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                // 玻璃边缘一圈极细的内反射，避免整块毛玻璃失去层次
-                RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.8)
-            }
+    private var dishOverlay: some View {
+        ZStack {
+            // 顶部微弧受光带：只覆盖上沿一小段，不侵入字符区
+            LinearGradient(
+                stops: [
+                    .init(color: Color.white.opacity(palette.isLightSurface ? 0.20 : 0.16), location: 0.0),
+                    .init(color: Color.white.opacity(palette.isLightSurface ? 0.05 : 0.04), location: 0.42),
+                    .init(color: Color.clear, location: 0.75),
+                    .init(color: Color.black.opacity(palette.isLightSurface ? 0.025 : 0.07), location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
             .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
 
-        case .aurora:
+            // 左上角柔和镜面反射：模拟环境光在圆角处的聚拢
             RadialGradient(
                 colors: [
-                    palette.accent.color(opacity: 0.30),
+                    Color.white.opacity(palette.isLightSurface ? 0.13 : 0.09),
                     Color.clear
                 ],
                 center: .topLeading,
+                startRadius: 0,
+                endRadius: round(height * 0.60)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
+
+            // 中央内凹碟面光影：极轻，只为读成「凹面」而非平面
+            RadialGradient(
+                colors: [
+                    Color.black.opacity(palette.isLightSurface ? 0.014 : 0.05),
+                    Color.clear
+                ],
+                center: .center,
                 startRadius: 2,
-                endRadius: round(height * 0.78)
+                endRadius: round(height * 0.52)
             )
             .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
         }
@@ -278,7 +257,7 @@ public struct KeycapItemView: View {
         LinearGradient(
             colors: [
                 Color.clear,
-                Color.black.opacity(palette.isLightSurface ? 0.10 : 0.20)
+                Color.black.opacity(palette.isLightSurface ? 0.07 : 0.16)
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -295,47 +274,17 @@ public struct KeycapItemView: View {
     }
 }
 
-/// 键帽顶面材质背景（键帽本体与连按角标共用，保证二者的底色、色相与明度完全一致）
+/// 键帽顶面底色（键帽本体与连按角标共用，保证二者的底色、色相与明度完全一致）
+///
+/// 单一材质下这里只做一件事：把主题给的 top / bottom 原样铺成纵向渐变。
 struct KeycapFaceBackground: View {
-    let style: KeycapStyle
     let palette: KeycapPalette
 
     var body: some View {
-        switch style {
-        case .matte:
-            LinearGradient(
-                colors: palette.topFaceColors,
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-        case .frosted:
-            // 玻璃质感：以主题色本身着色（而非把强调色稀释上去），
-            // 否则 0.3x 的淡化会把深海蓝、纸感米白全部洗成灰白，主题辨识度尽失。
-            ZStack {
-                Rectangle().fill(.ultraThinMaterial)
-                palette.top.color.opacity(0.66)
-                LinearGradient(
-                    colors: [Color.white.opacity(palette.isLightSurface ? 0.16 : 0.10), Color.clear],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-
-        case .aurora:
-            // 极光染色：底色由主题色压暗派生（保留色相），而不是写死的近黑，
-            // 这样深色键帽在深色桌面上仍能靠霓虹描边与色相区分开。
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        palette.bottom.mixed(with: .black, ratio: 0.30).color,
-                        palette.bottom.mixed(with: .black, ratio: 0.54).color
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                palette.accent.color(opacity: 0.32)
-            }
-        }
+        LinearGradient(
+            colors: palette.topFaceColors,
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 }

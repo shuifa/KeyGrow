@@ -127,7 +127,6 @@ public final class KeyMonitor: ObservableObject {
                     modifiers: newStroke.modifiers,
                     content: newStroke.content,
                     rawIdentifier: newStroke.rawIdentifier,
-                    isShortcut: newStroke.isShortcut,
                     isSpecialFunctionKey: newStroke.isSpecialFunctionKey,
                     isModifierOnly: newStroke.isModifierOnly,
                     timestamp: newStroke.timestamp,
@@ -378,7 +377,6 @@ private final class KeyMonitorWorker: @unchecked Sendable {
                 modifiers: activeModifiers,
                 content: .symbol(name: "capslock", fallbackText: "⇪"),
                 rawIdentifier: "caps_lock",
-                isShortcut: true,
                 isSpecialFunctionKey: true,
                 isModifierOnly: true,
                 timestamp: Date()
@@ -389,7 +387,6 @@ private final class KeyMonitorWorker: @unchecked Sendable {
                 modifiers: activeModifiers,
                 content: .symbol(name: "globe", fallbackText: "Fn"),
                 rawIdentifier: "fn",
-                isShortcut: true,
                 isSpecialFunctionKey: true,
                 isModifierOnly: true,
                 timestamp: Date()
@@ -406,7 +403,6 @@ private final class KeyMonitorWorker: @unchecked Sendable {
                 modifiers: prefixMods,
                 content: .symbol(name: lastMod.sfSymbol, fallbackText: lastMod.glyph),
                 rawIdentifier: rawId,
-                isShortcut: true,
                 isSpecialFunctionKey: true,
                 isModifierOnly: true,
                 timestamp: Date()
@@ -443,11 +439,6 @@ private final class KeyMonitorWorker: @unchecked Sendable {
         // 解析键位码内容
         let keyInfo = KeyCodeMapper.map(event: event, keyCode: keyCode)
 
-        // 判断是否属于快捷键范畴：
-        // 包含 Command/Option/Control，或单独的 Shift 组合，或独立功能键（Esc/Tab/F1~F12/方向键等）
-        let hasControlOrAltOrCmd = flags.contains(.maskCommand) || flags.contains(.maskAlternate) || flags.contains(.maskControl)
-        let isShortcut = hasControlOrAltOrCmd || (flags.contains(.maskShift) && keyInfo.isSpecialFunctionKey) || keyInfo.isSpecialFunctionKey
-
         // 构造唯一标示符用于连按判断（例如 "cmd+option+c" 或 "esc"）
         let modStr = modifiers.map { $0.rawValue }.joined(separator: "+")
         let rawIdentifier = modStr.isEmpty ? keyInfo.identifier : "\(modStr)+\(keyInfo.identifier)"
@@ -456,24 +447,15 @@ private final class KeyMonitorWorker: @unchecked Sendable {
             modifiers: modifiers,
             content: keyInfo.content,
             rawIdentifier: rawIdentifier,
-            isShortcut: isShortcut,
             isSpecialFunctionKey: keyInfo.isSpecialFunctionKey,
             isModifierOnly: false,
             timestamp: Date()
         )
 
-        // 检查显示过滤模式
+        // 固定全按键模式：所有按键都直接派发，不再做快捷键过滤
         let callback = self.onKeyStroke
         Task { @MainActor in
-            let mode = AppSettings.shared.displayMode
-            switch mode {
-            case .shortcutsOnly:
-                if isShortcut {
-                    callback(stroke)
-                }
-            case .allKeys:
-                callback(stroke)
-            }
+            callback(stroke)
         }
     }
 }

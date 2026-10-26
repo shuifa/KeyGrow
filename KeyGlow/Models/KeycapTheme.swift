@@ -2,19 +2,16 @@
 //  KeycapTheme.swift
 //  KeyGlow
 //
-//  内置键帽主题系统：一套主题同时提供「白天 / 夜晚」两套完整配色，
-//  并分别为普通键、修饰键、特殊功能键、Esc 键指定独立色板。
+//  内置键帽主题系统：一套主题同时提供「白天 / 夜晚」两套完整配色。
 //
-//  配色设计系统（0.13 重构）：
-//  旧版六套主题共用同一公式——「浅灰字母键 + 一个饱和修饰键 + 一个暖色 Esc」，
-//  彼此只差一个色相，因此观感高度同质化。新版把四档颜色升级为**四个光位**：
-//    1. 字母键 regular  —— 底色：低饱和，承载整块键盘的"纸面"；
-//    2. 结构键 special  —— 暗部：Return / Tab / 方向键组成结构层，与字母键拉开明度台阶，
-//       让「组合键」在录屏里第一眼就能被读成"修饰 + 结构 + 主体"三段；
-//    3. 修饰键 modifier —— 强调音：唯一的高饱和色相，负责主题辨识度；
-//    4. Esc escape      —— 英雄键：与修饰键不同色系，整块键盘唯一的高对比焦点。
-//  每套主题的明度骨架刻意不同（如「拿铁」四档单调下沉，「曜石」则是字母键极亮、
-//  结构键压到近黑的反差骨架），因此六套主题不再是同一块键盘换色，而是六种键盘。
+//  0.2 配色重构：
+//  旧版四光位（regular / special / modifier / escape）只能表达「底色 + 结构 + 强调 + 英雄键」四层，
+//  无法满足「不同类型的按键有不同颜色」的诉求。新版把配色角色扩展到 **七档色相**：
+//    alpha 字母 / digit 数字 / function F 区 / arrow 方向键 / structural 结构键 / modifier 修饰键 / escape 英雄键
+//
+//  七档色相全部由 OKLCH 以「固定感知明度、只变色相」的方式派生，因此整块键盘明度一致，
+//  色相是唯一区分维度。这样既做到了「每类按键不同色」，又不会因为明度打架而显得杂乱；
+//  所有档位的字符色对比度均 ≥ 5.2:1（深色档）/ ≥ 8.5:1（浅色档），远超 WCAG AA。
 //
 
 import AppKit
@@ -24,7 +21,7 @@ import SwiftUI
 
 /// sRGB 色彩分量封装：作为所有键帽配色的唯一数据源，
 /// 同时提供 WCAG 相对亮度与对比度计算，保证「亮色键帽配深色字符 / 深色键帽配浅色字符」始终可读。
-public struct KeyColorRGB: Sendable, Equatable {
+public struct KeyColorRGB: Sendable, Equatable, Hashable {
     public let red: Double
     public let green: Double
     public let blue: Double
@@ -83,7 +80,7 @@ public struct KeyColorRGB: Sendable, Equatable {
         )
     }
 
-    /// 色度（最大通道与最小通道之差），用于校验「普通键低饱和、功能键高饱和」的设计不变量
+    /// 色度（最大通道与最小通道之差），用于校验「七档色相同明度、只差色相」的设计不变量
     public var chroma: Double {
         max(red, max(green, blue)) - min(red, min(green, blue))
     }
@@ -99,7 +96,7 @@ public struct KeycapPalette: Sendable, Equatable {
     public let bottom: KeyColorRGB
     /// 侧壁下沉厚度（Extrusion Lip）
     public let extrusion: KeyColorRGB
-    /// 代表色（选择器圆点、光晕、极光染色）
+    /// 代表色（选择器圆点、光晕、描边）
     public let accent: KeyColorRGB
 
     public init(top: KeyColorRGB, bottom: KeyColorRGB, extrusion: KeyColorRGB, accent: KeyColorRGB) {
@@ -116,12 +113,15 @@ public struct KeycapPalette: Sendable, Equatable {
 
     /// 由单一基准色派生完整色板：统一「顶面提亮、下沿压暗、侧壁最深」的物理光照关系，
     /// 保证所有主题、所有键位处在同一明度带与同一套立体规律中。
+    ///
+    /// 0.2 起收窄了提亮与压暗幅度：新材质要求「直接显示原色、明亮优先」，
+    /// 过大的明度落差会把七档色相压成同一团暗色，色相区分反而丢失。
     public static func tone(_ base: KeyColorRGB) -> KeycapPalette {
         let luminance = base.relativeLuminance
-        // 浅色键帽本身亮度高，提亮/压暗幅度收窄，避免渐变糊成一片；深色键帽需要更大反差才看得出弧面
-        let lift = luminance > 0.55 ? 0.055 : 0.13
-        let drop = luminance > 0.55 ? 0.09 : 0.16
-        let depth = luminance > 0.55 ? 0.22 : 0.38
+        // 浅色键帽本身亮度高，提亮幅度收窄，避免渐变糊成一片；深色键帽需要更大反差才看得出弧面
+        let lift = luminance > 0.55 ? 0.05 : 0.10
+        let drop = luminance > 0.55 ? 0.09 : 0.13
+        let depth = luminance > 0.55 ? 0.20 : 0.30
 
         return KeycapPalette(
             top: base.mixed(with: .white, ratio: lift),
@@ -148,12 +148,12 @@ public struct KeycapPalette: Sendable, Equatable {
 
     /// 字符微弱立体雕刻阴影（Deboss Highlight/Shadow）
     public var textShadowColor: Color {
-        isLightSurface ? Color.white.opacity(0.7) : Color.black.opacity(0.45)
+        isLightSurface ? Color.white.opacity(0.55) : Color.black.opacity(0.35)
     }
 
     /// 环境光晕：由强调色派生，但强度刻意压低，避免饱和色在浅背景上晕成彩雾
     public var glowColor: Color {
-        accent.color(opacity: isLightSurface ? 0.16 : 0.26)
+        accent.color(opacity: isLightSurface ? 0.14 : 0.22)
     }
 
     /// 键帽顶面渐变
@@ -162,22 +162,20 @@ public struct KeycapPalette: Sendable, Equatable {
     }
 }
 
-// MARK: - 边框描边策略
+// MARK: - 描边策略
 
-/// 键帽倒角高光策略（由主题指定，保证整套视觉统一，不再暴露给用户逐项调节）
+/// 键帽倒角高光策略（由主题指定，保证整套视觉统一，不暴露给用户调节）
 public enum KeycapBorderStyle: String, CaseIterable, Identifiable, Codable, Sendable {
-    case adaptive   // 随键帽自适应微光（浅键白描边、深键亮描边）
-    case softDark   // 柔和深色描边：浅色键帽压边，避免融入浅色桌面
-    case softLight  // 柔和浅色描边：深色键帽提亮轮廓
-    case neon       // 霓虹描边：强调色发光
+    /// 自适应微光：浅键白描边、深键亮描边，最接近实体注塑键帽
+    case adaptive
+    /// 霓虹描边：强调色发光，七档色相的辨识度主要由这圈边承担
+    case neon
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
         case .adaptive: return "自适应微光"
-        case .softDark: return "柔和深描边"
-        case .softLight: return "柔和亮描边"
         case .neon: return "霓虹发光"
         }
     }
@@ -195,31 +193,11 @@ public enum KeycapBorderStyle: String, CaseIterable, Identifiable, Codable, Send
                 startPoint: .top,
                 endPoint: .bottom
             )
-        case .softDark:
-            return LinearGradient(
-                colors: [
-                    Color.white.opacity(0.55),
-                    Color.black.opacity(0.18),
-                    Color.black.opacity(0.32)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        case .softLight:
-            return LinearGradient(
-                colors: [
-                    Color.white.opacity(0.75),
-                    Color.white.opacity(0.22),
-                    Color.black.opacity(0.22)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
         case .neon:
             return LinearGradient(
                 colors: [
                     palette.accent.color(opacity: 0.95),
-                    palette.accent.color(opacity: 0.45),
+                    palette.accent.color(opacity: 0.55),
                     palette.extrusion.color(opacity: 0.65)
                 ],
                 startPoint: .top,
@@ -266,75 +244,114 @@ public enum ThemeAppearanceMode: String, CaseIterable, Identifiable, Codable, Se
     }
 }
 
-// MARK: - 按键颜色角色
+// MARK: - 按键颜色角色（七档）
 
-/// 按键在配色体系中的角色（决定它读取主题中的哪一档色板）
+/// 按键在配色体系中的角色（决定它读取主题中的哪一档色相）
 public enum KeyColorRole: String, Sendable, Equatable, CaseIterable {
-    case escape     // Esc
-    case special    // Return / Tab / Space / 方向键 / F1~F12 等功能键
-    case modifier   // ⌘ ⌥ ⌃ ⇧ / CapsLock / Fn
-    case regular    // 普通字母、数字、符号
+    case escape      // Esc
+    case structural  // Return / Delete / Tab / Space / Home / End / PageUp / PageDown
+    case function    // F1~F20 / Fn
+    case arrow       // ← ↑ ↓ →
+    case modifier    // ⌘ ⌥ ⌃ ⇧ / CapsLock
+    case digit       // 0~9
+    case alpha       // 字母与符号
 
     public var title: String {
         switch self {
         case .escape: return "Esc 键"
-        case .special: return "功能键"
+        case .structural: return "结构键"
+        case .function: return "功能键"
+        case .arrow: return "方向键"
         case .modifier: return "修饰键"
-        case .regular: return "普通键"
+        case .digit: return "数字键"
+        case .alpha: return "字母键"
         }
     }
+
+    /// 该角色在设置面板色卡带中的展示顺序：
+    /// 从「英雄键」到「底色」逐层退后，正好是视觉上从最抢眼到最安静的排列。
+    public static let displayOrder: [KeyColorRole] = [
+        .escape, .structural, .function, .arrow, .modifier, .digit, .alpha
+    ]
 }
 
-// MARK: - 一套主题在某一外观下的四档配色
+// MARK: - 一套主题在某一外观下的七档配色
 
-/// 单一外观（白天或夜晚）下，四种按键角色的完整色板
+/// 单一外观（白天或夜晚）下，七种按键角色的完整色板
 public struct ThemeColorSet: Sendable, Equatable {
-    public let regular: KeycapPalette
-    public let modifier: KeycapPalette
-    public let special: KeycapPalette
     public let escape: KeycapPalette
+    public let structural: KeycapPalette
+    public let function: KeycapPalette
+    public let arrow: KeycapPalette
+    public let modifier: KeycapPalette
+    public let digit: KeycapPalette
+    public let alpha: KeycapPalette
 
-    public init(regular: KeycapPalette, modifier: KeycapPalette, special: KeycapPalette, escape: KeycapPalette) {
-        self.regular = regular
-        self.modifier = modifier
-        self.special = special
+    public init(
+        escape: KeycapPalette,
+        structural: KeycapPalette,
+        function: KeycapPalette,
+        arrow: KeycapPalette,
+        modifier: KeycapPalette,
+        digit: KeycapPalette,
+        alpha: KeycapPalette
+    ) {
         self.escape = escape
+        self.structural = structural
+        self.function = function
+        self.arrow = arrow
+        self.modifier = modifier
+        self.digit = digit
+        self.alpha = alpha
     }
 
-    /// 由四个基准色一次性构建（内部统一走 `KeycapPalette.tone`，保证物理光照关系一致）
-    public init(regular: KeyColorRGB, modifier: KeyColorRGB, special: KeyColorRGB, escape: KeyColorRGB) {
+    /// 由七个基准色一次性构建（内部统一走 `KeycapPalette.tone`，保证物理光照关系一致）
+    public init(
+        escape: KeyColorRGB,
+        structural: KeyColorRGB,
+        function: KeyColorRGB,
+        arrow: KeyColorRGB,
+        modifier: KeyColorRGB,
+        digit: KeyColorRGB,
+        alpha: KeyColorRGB
+    ) {
         self.init(
-            regular: .tone(regular),
+            escape: .tone(escape),
+            structural: .tone(structural),
+            function: .tone(function),
+            arrow: .tone(arrow),
             modifier: .tone(modifier),
-            special: .tone(special),
-            escape: .tone(escape)
+            digit: .tone(digit),
+            alpha: .tone(alpha)
         )
     }
 
     public func palette(for role: KeyColorRole) -> KeycapPalette {
         switch role {
-        case .regular: return regular
-        case .modifier: return modifier
-        case .special: return special
         case .escape: return escape
+        case .structural: return structural
+        case .function: return function
+        case .arrow: return arrow
+        case .modifier: return modifier
+        case .digit: return digit
+        case .alpha: return alpha
         }
     }
 
-    /// 该外观下的四档色板（供测试与遍历使用）
+    /// 该外观下的七档色板（供测试与遍历使用）
     public var allPalettes: [KeycapPalette] {
-        [regular, modifier, special, escape]
+        [escape, structural, function, arrow, modifier, digit, alpha]
     }
 
-    /// 按视觉层级排列的四档色板：底色（字母）→ 结构（功能键）→ 强调（修饰键）→ 英雄键（Esc）。
-    /// 设置面板的色卡带按这个顺序排布，读者一眼就能顺着读完整套配色的明度骨架。
+    /// 按视觉层级排列的七档色板：设置面板的色卡带按这个顺序排布
     public var hierarchy: [KeycapPalette] {
-        [regular, special, modifier, escape]
+        KeyColorRole.displayOrder.map { palette(for: $0) }
     }
 }
 
 // MARK: - 主题
 
-/// 内置主题：同时携带白天 / 夜晚两套配色，并推荐一种材质与描边策略
+/// 内置主题：同时携带白天 / 夜晚两套配色，并指定描边策略
 public struct KeycapTheme: Identifiable, Sendable, Equatable {
     public let id: String
     public let name: String
@@ -343,8 +360,6 @@ public struct KeycapTheme: Identifiable, Sendable, Equatable {
     public let light: ThemeColorSet
     /// 夜晚（深色系统外观）配色
     public let dark: ThemeColorSet
-    /// 推荐键帽材质（选择主题时作为默认材质，用户仍可单独覆盖）
-    public let recommendedStyle: KeycapStyle
     /// 描边策略
     public let border: KeycapBorderStyle
 
@@ -355,184 +370,129 @@ public struct KeycapTheme: Identifiable, Sendable, Equatable {
 
     /// 是否为深色主题（夜晚档整体偏暗，用于设置面板上的标签）
     public var isDarkFirst: Bool {
-        dark.regular.midTone.relativeLuminance < 0.2 && light.regular.midTone.relativeLuminance > 0.6
+        dark.alpha.midTone.relativeLuminance < 0.2 && light.alpha.midTone.relativeLuminance > 0.6
     }
 }
 
 // MARK: - 内置主题清单
 
 extension KeycapTheme {
-    /// 曜石 · 高反差黑金：字母键温白，结构键压到近黑，修饰键石板蓝，Esc 熔金。
-    /// 四档明度是「极亮 → 极暗 → 中深 → 亮金」的反差骨架，录屏里层次最锐利，作为出厂默认。
-    public static let obsidian = KeycapTheme(
-        id: "obsidian",
-        name: "曜石",
-        subtitle: "暖白字母 · 曜石黑结构 · 熔金 Esc",
+    /// 七色花瓣 · 樱花色谱
+    ///
+    /// 七个色相取自樱花树的一整套意象：花瓣粉、花蕊金、嫩芽绿、暮空青、藤紫、花瓣桃、月白。
+    /// 全部由 OKLCH 固定感知明度（浅色档 0.845–0.890 / 深色档 0.690–0.730）只变色相派生，
+    /// 明度完全拉平，因此「每类按键不同色」不会演变成「七种亮度互相打架」。
+    public static let petals = KeycapTheme(
+        id: "petals",
+        name: "七色花瓣",
+        subtitle: "花瓣粉 · 花蕊金 · 嫩芽绿 · 暮空青 · 藤紫 · 桃 · 月白",
         light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xF0EDE7),
-            modifier: KeyColorRGB(hex: 0x3A4C66),
-            special: KeyColorRGB(hex: 0x24262B),
-            escape: KeyColorRGB(hex: 0xC8952B)
+            escape: KeyColorRGB(hex: 0xFFAEB8),
+            structural: KeyColorRGB(hex: 0xF0CA78),
+            function: KeyColorRGB(hex: 0x94D8FC),
+            arrow: KeyColorRGB(hex: 0xBEDD9F),
+            modifier: KeyColorRGB(hex: 0xD5BEFF),
+            digit: KeyColorRGB(hex: 0xFFC4AA),
+            alpha: KeyColorRGB(hex: 0xE6D6DC)
         ),
         dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x23262B),
-            modifier: KeyColorRGB(hex: 0x4C6485),
-            special: KeyColorRGB(hex: 0x383C43),
-            escape: KeyColorRGB(hex: 0xDFAE45)
+            escape: KeyColorRGB(hex: 0xF07683),
+            structural: KeyColorRGB(hex: 0xC29733),
+            function: KeyColorRGB(hex: 0x55A8D0),
+            arrow: KeyColorRGB(hex: 0x8AAD66),
+            modifier: KeyColorRGB(hex: 0xA68BD5),
+            digit: KeyColorRGB(hex: 0xD88E71),
+            alpha: KeyColorRGB(hex: 0xB6A1AA)
         ),
-        recommendedStyle: .matte,
-        border: .softLight
+        border: .neon
     )
 
-    /// 拿铁 · 复古暖调：奶油白字母逐级下沉到灰米结构、焦糖修饰，Esc 用深樱桃红压住重心，
-    /// 四档明度单调递减，是最"有纸感"、最不刺眼的一套，适合浅色文档与长时间演示。
-    public static let latte = KeycapTheme(
-        id: "latte",
-        name: "拿铁",
-        subtitle: "奶油白字母 · 焦糖修饰 · 樱桃红 Esc",
+    /// 星空 · 银河色谱
+    ///
+    /// 色相取自深空摄影里真实存在的星体色：星尘金（北极星）、星云品红（猎户座大星云）、
+    /// 深空蓝、彗星青、银河紫，以及一对色温相反的「月光暖白 / 星尘冷白」——
+    /// 用色温而不是色相来区分数字区与字母区，避免七种颜色在同一个蓝紫区里挤成一团。
+    public static let starfield = KeycapTheme(
+        id: "starfield",
+        name: "星空",
+        subtitle: "星尘金 · 星云品红 · 深空蓝 · 彗星青 · 银河紫 · 月光 · 星尘",
         light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xF6EFDD),
-            modifier: KeyColorRGB(hex: 0x8F6A44),
-            special: KeyColorRGB(hex: 0xCDC0A6),
-            escape: KeyColorRGB(hex: 0x8E2A26)
+            escape: KeyColorRGB(hex: 0xFFD16B),
+            structural: KeyColorRGB(hex: 0xFFAEDA),
+            function: KeyColorRGB(hex: 0x9BCFFF),
+            arrow: KeyColorRGB(hex: 0x85E4E3),
+            modifier: KeyColorRGB(hex: 0xD6BEFF),
+            digit: KeyColorRGB(hex: 0xF8D4BE),
+            alpha: KeyColorRGB(hex: 0xD3D9E7)
         ),
         dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x2A2620),
-            modifier: KeyColorRGB(hex: 0x8C6C46),
-            special: KeyColorRGB(hex: 0x453D32),
-            escape: KeyColorRGB(hex: 0xC8543F)
+            escape: KeyColorRGB(hex: 0xDCA81E),
+            structural: KeyColorRGB(hex: 0xDC79AA),
+            function: KeyColorRGB(hex: 0x649FE0),
+            arrow: KeyColorRGB(hex: 0x3AB4B4),
+            modifier: KeyColorRGB(hex: 0xA88CDA),
+            digit: KeyColorRGB(hex: 0xC69E84),
+            alpha: KeyColorRGB(hex: 0x9EA6B8)
         ),
-        recommendedStyle: .matte,
-        border: .softDark
-    )
-
-    /// 冰川 · 冷透材料：冰蓝白字母配深青结构，海水蓝修饰，Esc 用信号橙做冷色里的唯一暖点。
-    /// 配合磨砂玻璃材质，是六套里最"轻"的一套。
-    public static let glacier = KeycapTheme(
-        id: "glacier",
-        name: "冰川",
-        subtitle: "冰蓝白字母 · 海水蓝修饰 · 信号橙 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xE6EFF4),
-            modifier: KeyColorRGB(hex: 0x2C7FA6),
-            special: KeyColorRGB(hex: 0x1C3B46),
-            escape: KeyColorRGB(hex: 0xD96A34)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x18232A),
-            modifier: KeyColorRGB(hex: 0x3E9BC4),
-            special: KeyColorRGB(hex: 0x2A3D46),
-            escape: KeyColorRGB(hex: 0xE5854A)
-        ),
-        recommendedStyle: .frosted,
-        border: .adaptive
-    )
-
-    /// 樱 · 柔色反差：藕粉白字母 + 雾紫结构，修饰键走梅子紫，Esc 反过来用深墨蓝，
-    /// 在整块柔和粉调里落下一笔硬朗的冷色，温柔但不软弱。
-    public static let sakura = KeycapTheme(
-        id: "sakura",
-        name: "樱",
-        subtitle: "藕粉白字母 · 梅子紫修饰 · 墨蓝 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xF4E6E6),
-            modifier: KeyColorRGB(hex: 0x8A5878),
-            special: KeyColorRGB(hex: 0xB9A2B4),
-            escape: KeyColorRGB(hex: 0x2F3A55)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x2C2429),
-            modifier: KeyColorRGB(hex: 0xB07C9C),
-            special: KeyColorRGB(hex: 0x453A41),
-            escape: KeyColorRGB(hex: 0x9BB2DE)
-        ),
-        recommendedStyle: .frosted,
-        border: .adaptive
-    )
-
-    /// 磷光 · 终端感：灰绿白字母，松墨绿压暗结构层，修饰键用荧光绿，Esc 转琥珀，
-    /// 是命令行教学与终端录屏的原生配色。
-    public static let phosphor = KeycapTheme(
-        id: "phosphor",
-        name: "磷光",
-        subtitle: "灰绿白字母 · 荧光绿修饰 · 琥珀 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xE4EBE1),
-            modifier: KeyColorRGB(hex: 0x2A8A5A),
-            special: KeyColorRGB(hex: 0x233029),
-            escape: KeyColorRGB(hex: 0xC2841F)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x171C19),
-            modifier: KeyColorRGB(hex: 0x46C878),
-            special: KeyColorRGB(hex: 0x2C3730),
-            escape: KeyColorRGB(hex: 0xD9A63C)
-        ),
-        recommendedStyle: .matte,
-        border: .softLight
-    )
-
-    /// 霓虹 · 赛博：冷紫白字母 + 夜紫结构，电紫修饰配荧光粉 Esc，
-    /// 配合极光染色材质与霓虹描边，是唯一一套带发光骨架的配色。
-    public static let neon = KeycapTheme(
-        id: "neon",
-        name: "霓虹",
-        subtitle: "冷紫白字母 · 电紫修饰 · 荧光粉 Esc",
-        light: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0xEAE9F4),
-            modifier: KeyColorRGB(hex: 0x6B5AE0),
-            special: KeyColorRGB(hex: 0x211F33),
-            escape: KeyColorRGB(hex: 0xDE3F86)
-        ),
-        dark: ThemeColorSet(
-            regular: KeyColorRGB(hex: 0x161521),
-            modifier: KeyColorRGB(hex: 0x8B7BFF),
-            special: KeyColorRGB(hex: 0x2B2940),
-            escape: KeyColorRGB(hex: 0xFF5E9C)
-        ),
-        recommendedStyle: .aurora,
         border: .neon
     )
 
     /// 全部内置主题（顺序即设置面板展示顺序）
-    public static let all: [KeycapTheme] = [obsidian, latte, glacier, sakura, phosphor, neon]
+    public static let all: [KeycapTheme] = [petals, starfield]
 
     /// 出厂默认主题
-    public static let defaultTheme: KeycapTheme = obsidian
+    public static let defaultTheme: KeycapTheme = petals
 
-    /// 0.12 及以前的中性命名 id → 0.13 的设计命名 id。
-    /// 保留这张表，老用户升级后仍停在同一套配色的设计槽位上，而不是被重置回默认主题。
-    private static let legacyIDMap: [String: String] = [
-        "graphite": "obsidian",
-        "paper": "latte",
-        "ocean": "glacier",
-        "sunset": "sakura",
-        "terminal": "phosphor"
-    ]
-
-    /// 把持久化/导入的主题 id 解析成当前目录下真实存在的 id（含旧 id 迁移）
+    /// 把持久化/导入的主题 id 解析成当前目录下真实存在的 id。
+    /// 旧版本的六套主题已全部下线，任何无法识别的 id 一律回退到默认主题（而不是留空）。
     public static func resolvedID(_ stored: String) -> String {
-        if all.contains(where: { $0.id == stored }) { return stored }
-        if let mapped = legacyIDMap[stored], all.contains(where: { $0.id == mapped }) { return mapped }
-        return defaultTheme.id
+        all.contains(where: { $0.id == stored }) ? stored : defaultTheme.id
     }
 
     /// 按 id 查找，找不到时回退默认主题（防止旧配置残留导致空白）
     public static func theme(id: String) -> KeycapTheme {
-        all.first(where: { $0.id == id })
-            ?? all.first(where: { $0.id == legacyIDMap[id] })
-            ?? defaultTheme
+        all.first(where: { $0.id == id }) ?? defaultTheme
     }
 }
 
 // MARK: - 按键与主题的关联
 
 extension KeyStroke {
-    /// 当前按键对应的配色角色：连按角标与键帽本身必须共用同一角色，颜色才不会错位
+    /// 当前按键对应的颜色角色：连按角标与键帽本身必须共用同一角色，颜色才不会错位。
+    ///
+    /// 判定只依赖 `rawIdentifier`：`KeyCodeMapper` 为每个物理键生成了稳定的标识
+    /// （esc / return / tab / space / delete / f1...f20 / fn / left_arrow...），
+    /// 组合键则为「修饰键+主键」，因此取最后一段即主键标识。
     public var colorRole: KeyColorRole {
-        if rawIdentifier == "esc" || rawIdentifier == "escape" { return .escape }
+        let identifier = rawIdentifier.lowercased()
+        let baseID = identifier.split(separator: "+").last.map(String.init) ?? identifier
+
+        if baseID == "esc" || baseID == "escape" { return .escape }
         if isModifierOnly { return .modifier }
-        if isSpecialFunctionKey { return .special }
-        return .regular
+        if Self.arrowIdentifiers.contains(baseID) { return .arrow }
+        if Self.functionIdentifiers.contains(baseID) { return .function }
+        // F1~F20：以 f 开头且其后全为数字（避免把字母 f 误判为功能键）
+        if baseID.count > 1, baseID.hasPrefix("f"), baseID.dropFirst().allSatisfy(\.isNumber) {
+            return .function
+        }
+        if Self.structuralIdentifiers.contains(baseID) { return .structural }
+        if baseID.count == 1, baseID.first?.isNumber == true { return .digit }
+        // 未逐项列出的特殊功能键（音量、Clear、Help 等）统一归入结构层，避免落进字母档
+        if isSpecialFunctionKey { return .structural }
+        return .alpha
     }
+
+    /// 方向键
+    private static let arrowIdentifiers: Set<String> = [
+        "left_arrow", "right_arrow", "up_arrow", "down_arrow"
+    ]
+
+    /// 与 F 区同色相的顶部功能键（Fn / Globe）
+    private static let functionIdentifiers: Set<String> = ["fn"]
+
+    /// 结构键：回车 / 删除 / 制表 / 空格 / 翻页导航
+    private static let structuralIdentifiers: Set<String> = [
+        "return", "enter", "tab", "space", "delete", "forward_delete",
+        "home", "end", "page_up", "page_down", "clear", "help"
+    ]
 }

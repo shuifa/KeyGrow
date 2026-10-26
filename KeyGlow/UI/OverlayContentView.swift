@@ -41,7 +41,6 @@ public struct OverlayContentView: View {
                     KeycapView(
                         stroke: stroke,
                         theme: settings.theme,
-                        style: settings.keycapStyle,
                         colorScheme: colorScheme,
                         opacity: settings.keyOpacity,
                         punchTrigger: monitor.punchCounters[stroke.id] ?? 0,

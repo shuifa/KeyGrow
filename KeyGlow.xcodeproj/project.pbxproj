@@ -26,7 +26,6 @@
 /* Begin PBXFileReference section */
 		F656FE823081BDF800EBC9CC /* KeyGlow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeyGlow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F656FE8F3081BDF900EBC9CC /* KeyGlowTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeyGlowTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F656FE993081BDF900EBC9CC /* KeyGlowUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeyGlowUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -38,11 +37,6 @@
 		F656FE923081BDF900EBC9CC /* KeyGlowTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = KeyGlowTests;
-			sourceTree = "<group>";
-		};
-		F656FE9C3081BDF900EBC9CC /* KeyGlowUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = KeyGlowUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -58,11 +52,6 @@
 			files = (
 			);
 		};
-		F656FE963081BDF900EBC9CC /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			files = (
-			);
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -71,7 +60,6 @@
 			children = (
 				F656FE843081BDF800EBC9CC /* KeyGlow */,
 				F656FE923081BDF900EBC9CC /* KeyGlowTests */,
-				F656FE9C3081BDF900EBC9CC /* KeyGlowUITests */,
 				F656FE833081BDF800EBC9CC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -81,7 +69,6 @@
 			children = (
 				F656FE823081BDF800EBC9CC /* KeyGlow.app */,
 				F656FE8F3081BDF900EBC9CC /* KeyGlowTests.xctest */,
-				F656FE993081BDF900EBC9CC /* KeyGlowUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -128,27 +115,6 @@
 			productReference = F656FE8F3081BDF900EBC9CC /* KeyGlowTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		F656FE983081BDF900EBC9CC /* KeyGlowUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = F656FEA73081BDF900EBC9CC /* Build configuration list for PBXNativeTarget "KeyGlowUITests" */;
-			buildPhases = (
-				F656FE953081BDF900EBC9CC /* Sources */,
-				F656FE963081BDF900EBC9CC /* Frameworks */,
-				F656FE973081BDF900EBC9CC /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				F656FE9B3081BDF900EBC9CC /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				F656FE9C3081BDF900EBC9CC /* KeyGlowUITests */,
-			);
-			name = KeyGlowUITests;
-			productName = KeyGlowUITests;
-			productReference = F656FE993081BDF900EBC9CC /* KeyGlowUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -163,10 +129,6 @@
 						CreatedOnToolsVersion = 27.0;
 					};
 					F656FE8E3081BDF900EBC9CC = {
-						CreatedOnToolsVersion = 27.0;
-						TestTargetID = F656FE813081BDF800EBC9CC;
-					};
-					F656FE983081BDF900EBC9CC = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = F656FE813081BDF800EBC9CC;
 					};
@@ -188,7 +150,6 @@
 			targets = (
 				F656FE813081BDF800EBC9CC /* KeyGlow */,
 				F656FE8E3081BDF900EBC9CC /* KeyGlowTests */,
-				F656FE983081BDF900EBC9CC /* KeyGlowUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -200,11 +161,6 @@
 			);
 		};
 		F656FE8D3081BDF900EBC9CC /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			files = (
-			);
-		};
-		F656FE973081BDF900EBC9CC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -222,11 +178,6 @@
 			files = (
 			);
 		};
-		F656FE953081BDF900EBC9CC /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			files = (
-			);
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -234,11 +185,6 @@
 			isa = PBXTargetDependency;
 			target = F656FE813081BDF800EBC9CC /* KeyGlow */;
 			targetProxy = F656FE903081BDF900EBC9CC /* PBXContainerItemProxy */;
-		};
-		F656FE9B3081BDF900EBC9CC /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = F656FE813081BDF800EBC9CC /* KeyGlow */;
-			targetProxy = F656FE9A3081BDF900EBC9CC /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -368,7 +314,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -381,7 +327,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.14.1;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shuifa.KeyGlow;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -401,7 +347,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -414,7 +360,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.14.1;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shuifa.KeyGlow;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -432,10 +378,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.14.1;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shuifa.KeyGlowTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -452,10 +398,10 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
+				CURRENT_PROJECT_VERSION = 16;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.14.1;
+				MARKETING_VERSION = 0.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.shuifa.KeyGlowTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -464,42 +410,6 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/KeyGlow.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/KeyGlow";
-			};
-			name = Release;
-		};
-		F656FEA83081BDF900EBC9CC /* Debug configuration for PBXNativeTarget "KeyGlowUITests" */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.14.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.shuifa.KeyGlowUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = KeyGlow;
-			};
-			name = Debug;
-		};
-		F656FEA93081BDF900EBC9CC /* Release configuration for PBXNativeTarget "KeyGlowUITests" */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 15;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 0.14.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.shuifa.KeyGlowUITests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = KeyGlow;
 			};
 			name = Release;
 		};
@@ -528,14 +438,6 @@
 			buildConfigurations = (
 				F656FEA53081BDF900EBC9CC /* Debug configuration for PBXNativeTarget "KeyGlowTests" */,
 				F656FEA63081BDF900EBC9CC /* Release configuration for PBXNativeTarget "KeyGlowTests" */,
-			);
-			defaultConfigurationName = Release;
-		};
-		F656FEA73081BDF900EBC9CC /* Build configuration list for PBXNativeTarget "KeyGlowUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				F656FEA83081BDF900EBC9CC /* Debug configuration for PBXNativeTarget "KeyGlowUITests" */,
-				F656FEA93081BDF900EBC9CC /* Release configuration for PBXNativeTarget "KeyGlowUITests" */,
 			);
 			defaultConfigurationName = Release;
 		};
