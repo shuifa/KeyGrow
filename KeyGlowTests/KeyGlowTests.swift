@@ -44,7 +44,7 @@ final class KeyGlowTests: XCTestCase {
     // MARK: - 主题目录
 
     func testThemeCatalogIntegrity() {
-        XCTAssertEqual(KeycapTheme.all.count, 2, "0.2 只保留「七色花瓣」与「星空」两套主题")
+        XCTAssertEqual(KeycapTheme.all.count, 3, "0.21 内置「七色花瓣」「星空」「夜丁香」三套主题")
 
         // id 必须唯一且非空，否则持久化会串味
         let ids = KeycapTheme.all.map(\.id)
@@ -63,6 +63,8 @@ final class KeyGlowTests: XCTestCase {
         // 已知 id 必须原样解析
         XCTAssertEqual(KeycapTheme.theme(id: KeycapTheme.starfield.id).id, KeycapTheme.starfield.id)
         XCTAssertEqual(KeycapTheme.resolvedID(KeycapTheme.starfield.id), KeycapTheme.starfield.id)
+        XCTAssertEqual(KeycapTheme.theme(id: KeycapTheme.lilac.id).id, KeycapTheme.lilac.id)
+        XCTAssertEqual(KeycapTheme.resolvedID(KeycapTheme.lilac.id), KeycapTheme.lilac.id)
 
         // 未知 id / 空串 / 已下线主题必须回退默认主题，避免旧配置导致空白配色
         for legacy in ["not-a-theme", "", "obsidian", "sakura", "neon", "graphite"] {
