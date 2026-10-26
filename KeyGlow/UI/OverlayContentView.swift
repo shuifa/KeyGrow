@@ -19,9 +19,10 @@ public struct OverlayContentView: View {
     private static let standardExitAnimation  = Animation.smooth(duration: 0.22)                // == response 0.22 / damping 1.0
     private static let reducedMotionAnimation = Animation.easeOut(duration: 0.18)
 
-    /// 组合之间的间距：必须显著大于组合内部（4pt）的键间距，
+    /// 组合之间的间距：仍须大于组合内部（4pt）的键间距，
     /// 否则连续按下的多个组合会被读成一长串键帽。
-    private static let groupSpacing: CGFloat = 18
+    /// 0.14.1 起由 18pt 收窄至 9pt（内部键间距的 2.25 倍），整体更紧凑。
+    private static let groupSpacing: CGFloat = 9
 
     private var enterAnimation: Animation {
         reduceMotion ? Self.reducedMotionAnimation : Self.standardEnterAnimation
