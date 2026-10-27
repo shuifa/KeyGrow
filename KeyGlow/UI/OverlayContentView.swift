@@ -2,111 +2,96 @@
 //  OverlayContentView.swift
 //  KeyGlow
 //
+//  悬浮层主内容：一排键帽组，右侧进入、左侧离场，整体按当前吸附点重新布局。
+//
+//  动效语言对齐 Keystroke Pro：
+//    - 入场：轻微放大弹入（scale 0.88 → 1）+ 极短的位移，物理阻尼弹簧；
+//    - 驻留：完全静止，不做呼吸、不做高亮，避免录屏里出现无意义晃动；
+//    - 离场：平滑淡出并轻微缩小（scale 1 → 0.94），时长 0.30s。
+//
 
 import SwiftUI
 
-/// 悬浮层主内容容器：负责按键队列（数量由设置控制，同时按多个算一个）、
-/// 从右边进左边出的 Spring 动效与自适应排版，并可选地为键帽加一层托盘背板提升对比度。
+/// 悬浮层主内容容器
 public struct OverlayContentView: View {
     @ObservedObject private var monitor = KeyMonitor.shared
     @ObservedObject private var settings = AppSettings.shared
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    // 动效曲线常量（集中定义，保证进出场与队列重排共用同一节奏）
-    // spring(duration:bounce:) 与 spring(response:dampingFraction:) 等价: bounce = 1 - dampingFraction
-    private static let standardEnterAnimation = Animation.spring(duration: 0.32, bounce: 0.30)  // == response 0.32 / damping 0.70
-    private static let standardExitAnimation  = Animation.smooth(duration: 0.22)                // == response 0.22 / damping 1.0
     private static let reducedMotionAnimation = Animation.easeOut(duration: 0.18)
-
-    /// 组合之间的间距：仍须大于组合内部（4pt）的键间距，
-    /// 否则连续按下的多个组合会被读成一长串键帽。
-    /// 0.14.1 起由 18pt 收窄至 9pt（内部键间距的 2.25 倍），整体更紧凑。
-    private static let groupSpacing: CGFloat = 9
-
-    private var enterAnimation: Animation {
-        reduceMotion ? Self.reducedMotionAnimation : Self.standardEnterAnimation
-    }
-
-    private var exitAnimation: Animation {
-        reduceMotion ? Self.reducedMotionAnimation : Self.standardExitAnimation
-    }
 
     public init() {}
 
+    /// 当前渲染外观，用于解析「跟随系统强调色」这一材质
+    private var appearance: NSAppearance? {
+        NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
+    }
+
+    private var enterAnimation: Animation {
+        reduceMotion ? Self.reducedMotionAnimation : .spring(duration: 0.34, bounce: 0.26)
+    }
+
+    private var exitAnimation: Animation {
+        reduceMotion ? Self.reducedMotionAnimation : .smooth(duration: 0.30)
+    }
+
     public var body: some View {
-        ZStack(alignment: overlayAlignment) {
-            HStack(spacing: Self.groupSpacing) {
-                ForEach(Array(monitor.activeStrokes.enumerated()), id: \.element.id) { index, stroke in
-                    KeycapView(
-                        stroke: stroke,
-                        theme: settings.theme,
-                        colorScheme: colorScheme,
-                        opacity: settings.keyOpacity,
-                        punchTrigger: monitor.punchCounters[stroke.id] ?? 0,
-                        repeatCount: settings.showRepeatCount ? stroke.repeatCount : 1
-                    )
-                    .transition(strokeTransition)
-                    .zIndex(Double(index))   // 越靠右（越新）越靠上；离场卡在最左侧、压在最下层
-                }
+        HStack(spacing: settings.metrics.groupSpacing) {
+            ForEach(Array(monitor.activeStrokes.enumerated()), id: \.element.id) { index, stroke in
+                KeycapGroupView(
+                    stroke: stroke,
+                    slots: settings.colorSlots,
+                    metrics: settings.metrics,
+                    shape: settings.shape,
+                    repeatCount: settings.showRepeatCount ? stroke.repeatCount : 1,
+                    appearance: appearance,
+                    punchTrigger: monitor.punchCounters[stroke.id] ?? 0
+                )
+                .fixedSize()
+                .transition(groupTransition)
+                // 越靠右（越新）越靠上：离场卡片压在最下层
+                .zIndex(Double(index))
             }
-            .padding(.horizontal, settings.showKeycapTray ? 14 : 0)
-            .padding(.vertical, settings.showKeycapTray ? 8 : 0)
-            .background {
-                if settings.showKeycapTray {
-                    trayBackground
-                }
-            }
-            .scaleEffect(settings.sizeScale)
-            .animation(.smooth(duration: 0.22), value: settings.sizeScale)   // 只保留尺寸缩放自身的过渡
-            .animation(.smooth(duration: 0.25), value: settings.showKeycapTray)
         }
+        .fixedSize()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: overlayAlignment)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
+        .padding(.horizontal, settings.edgeInset)
+        .padding(.vertical, max(8, settings.edgeInset * 0.5))
     }
 
-    /// 键帽托盘：浅色桌面下的对比度兜底方案
-    private var trayBackground: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(colorScheme == .dark ? Color.black.opacity(0.42) : Color.white.opacity(0.62))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.14 : 0.55), lineWidth: 0.8)
-            )
-            .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
-    }
-
-    private var strokeTransition: AnyTransition {
+    /// 入场放大弹入 / 出场淡出并轻微缩小
+    private var groupTransition: AnyTransition {
         if reduceMotion {
             return .asymmetric(
                 insertion: .opacity.animation(enterAnimation),
                 removal: .opacity.animation(exitAnimation)
             )
-        } else {
-            return .asymmetric(
-                // 从右边进：带轻微缩放与弹簧初速度（入场自带回弹）
-                insertion: .offset(x: 40)
-                    .combined(with: .scale(scale: 0.82))
-                    .combined(with: .opacity)
-                    .animation(enterAnimation),
-                // 从左边出：平滑向左滑出并快速渐隐（出场短促、不回弹、快速淡出）
-                removal: .offset(x: -24)
-                    .combined(with: .scale(scale: 0.86))
-                    .combined(with: .opacity)
-                    .animation(exitAnimation)
-            )
         }
+        return .asymmetric(
+            insertion: .scale(scale: 0.88, anchor: .center)
+                .combined(with: .offset(x: 10))
+                .combined(with: .opacity)
+                .animation(enterAnimation),
+            removal: .scale(scale: 0.94, anchor: .center)
+                .combined(with: .opacity)
+                .animation(exitAnimation)
+        )
     }
 
+    /// 吸附点 → SwiftUI 对齐方式
     private var overlayAlignment: Alignment {
-        switch settings.anchor {
-        case .bottomLeft:
-            return .leading
-        case .bottomRight:
-            return .trailing
-        case .topCenter, .bottomCenter, .mouseFollow:
-            return .center
+        switch (settings.anchor.row, settings.anchor.column) {
+        case (.top, .leading): return .topLeading
+        case (.top, .center): return .top
+        case (.top, .trailing): return .topTrailing
+        case (.middle, .leading): return .leading
+        case (.middle, .trailing): return .trailing
+        case (.bottom, .leading): return .bottomLeading
+        case (.bottom, .center): return .bottom
+        case (.bottom, .trailing): return .bottomTrailing
+        // 中心不可选（3×3 网格留给显示器名称），兜底居中
+        case (.middle, .center): return .center
         }
     }
 }

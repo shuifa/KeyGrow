@@ -74,36 +74,21 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // 3. 主题（一整套七档配色，含白天 / 夜晚两档）
-        let themeMenu = NSMenu()
-        for theme in KeycapTheme.all {
-            let item = NSMenuItem(title: theme.name, action: #selector(selectTheme(_:)), keyEquivalent: "")
+        // 3. 键帽形态（独立键帽 / 胶囊）
+        let shapeMenu = NSMenu()
+        for shape in KeycapShape.allCases {
+            let item = NSMenuItem(title: shape.title, action: #selector(selectShape(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = theme.id
-            item.state = settings.themeID == theme.id ? .on : .off
-            themeMenu.addItem(item)
+            item.representedObject = shape
+            item.state = settings.shape == shape ? .on : .off
+            shapeMenu.addItem(item)
         }
-        let themeSubmenuItem = NSMenuItem(title: "配色主题", action: nil, keyEquivalent: "")
-        themeSubmenuItem.submenu = themeMenu
-        themeSubmenuItem.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: nil)
-        menu.addItem(themeSubmenuItem)
+        let shapeSubmenuItem = NSMenuItem(title: "键帽形态", action: nil, keyEquivalent: "")
+        shapeSubmenuItem.submenu = shapeMenu
+        shapeSubmenuItem.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
+        menu.addItem(shapeSubmenuItem)
 
-        // 4. 外观模式（跟随系统 / 浅色 / 深色）
-        let appearanceMenu = NSMenu()
-        for mode in ThemeAppearanceMode.allCases {
-            let item = NSMenuItem(title: mode.title, action: #selector(selectAppearanceMode(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = mode
-            item.state = settings.appearanceMode == mode ? .on : .off
-            item.image = NSImage(systemSymbolName: mode.iconName, accessibilityDescription: nil)
-            appearanceMenu.addItem(item)
-        }
-        let appearanceSubmenuItem = NSMenuItem(title: "外观模式", action: nil, keyEquivalent: "")
-        appearanceSubmenuItem.submenu = appearanceMenu
-        appearanceSubmenuItem.image = NSImage(systemSymbolName: "circle.lefthalf.filled", accessibilityDescription: nil)
-        menu.addItem(appearanceSubmenuItem)
-
-        // 5. 显示位置切换
+        // 4. 吸附位置（8 个）
         let anchorMenu = NSMenu()
         for anchor in DisplayAnchor.allCases {
             let item = NSMenuItem(title: anchor.title, action: #selector(selectAnchor(_:)), keyEquivalent: "")
@@ -148,15 +133,9 @@ public final class MenuBarManager: NSObject, NSMenuDelegate {
         rebuildMenu()
     }
 
-    @objc private func selectTheme(_ sender: NSMenuItem) {
-        guard let themeID = sender.representedObject as? String else { return }
-        AppSettings.shared.themeID = themeID
-        rebuildMenu()
-    }
-
-    @objc private func selectAppearanceMode(_ sender: NSMenuItem) {
-        if let mode = sender.representedObject as? ThemeAppearanceMode {
-            AppSettings.shared.appearanceMode = mode
+    @objc private func selectShape(_ sender: NSMenuItem) {
+        if let shape = sender.representedObject as? KeycapShape {
+            AppSettings.shared.shape = shape
             rebuildMenu()
         }
     }
