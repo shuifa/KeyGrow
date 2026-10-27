@@ -2,6 +2,13 @@
 //  KeyMonitor.swift
 //  KeyGlow
 //
+//  全局键盘监听与上台调度。
+//
+//  0.100 的三处关键变化：
+//   1. **显示过滤**：只有非字符键与含修饰键的组合才上台面，逐字回显打字内容被彻底关掉；
+//   2. **长按驻留**：事件掩码加入 keyUp，键帽在按键松开之前不会超时消失（Key Hold）；
+//   3. **释放才计时**：停留时长从「按下时刻」起算改为「松开时刻」起算，与 Keystroke Pro 一致。
+//
 
 import AppKit
 import Carbon
@@ -9,58 +16,78 @@ import Combine
 import CoreGraphics
 import SwiftUI
 
+/// 一次上台的按键请求（长按跟踪需要知道是哪个物理键码）
+public struct KeyPress: Sendable {
+    public let stroke: KeyStroke
+    /// 用于长按跟踪的物理键码（组合键取主键，纯修饰键取该修饰键）
+    public let keyCode: CGKeyCode
+
+    public init(stroke: KeyStroke, keyCode: CGKeyCode) {
+        self.stroke = stroke
+        self.keyCode = keyCode
+    }
+}
+
 /// 后台全局键盘事件监听与派发引擎
 @MainActor
 public final class KeyMonitor: ObservableObject {
     public static let shared = KeyMonitor()
 
-    /// 当前处于展示生命周期内的连续按键队列（容量由 `AppSettings.maxVisibleKeys` 控制，同时按多个算一个）
+    /// 当前处于展示生命周期内的键帽组（组数上限固定，超出时挤掉最左侧最早的一组）
     @Published public private(set) var activeStrokes: [KeyStroke] = []
 
     /// 最新按下的按键（兼容性快捷访问）
     public var currentStroke: KeyStroke? { activeStrokes.last }
 
-    /// 每个键帽独立的连按冲击计数（按 stroke.id 记录，保证只有「刚要按下/就地升级」的那张卡片振颤）
+    /// 每组键帽独立的冲击计数（只有「刚要按下 / 就地升级」的那一组会弹入）
     @Published public private(set) var punchCounters: [UUID: Int] = [:]
 
-    /// 每个键帽专属的一次性超时移除任务（按 id 索引，就地升级/连按时先取消再重新计时，避免提前移除）
+    /// 每组键帽仍在物理按下的键码（决定它是否处于长按驻留状态）
+    private var heldKeyCodes: [UUID: CGKeyCode] = [:]
+
+    /// 每组键帽专属的超时移除任务
     private var removalTasks: [UUID: Task<Void, Never>] = [:]
 
-    /// 队列重排动画：存活卡片平移到新位置
-    private var queueReorderAnimation: Animation {
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            return .easeInOut(duration: 0.18)
-        } else {
-            return .spring(duration: 0.30, bounce: 0.26)
-        }
-    }
+    /// 最新一组是否仍是「尚未松开的纯修饰键」（就地升级的判定依据）
+    private var lastStrokeIsUnreleasedModifier = false
 
-    /// 是否正在监听中
     @Published public private(set) var isMonitoring: Bool = false
 
     private var worker: KeyMonitorWorker?
 
+    /// 入场：细腻的轻微放大弹入（原版 Pop-in 的物理阻尼感）
+    private var enterAnimation: Animation {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? .easeOut(duration: 0.16)
+            : .spring(duration: 0.34, bounce: 0.28)
+    }
+
+    /// 离场：平滑淡出，位移交给视图的 transition
+    private var exitAnimation: Animation {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? .easeInOut(duration: 0.20)
+            : .smooth(duration: 0.30)
+    }
+
     private init() {}
 
-    /// 启动全局监听
+    // MARK: - 生命周期
+
     public func start() {
         guard !isMonitoring else { return }
 
-        // 检查辅助功能权限
         let trusted = AXIsProcessTrusted()
         AppSettings.shared.checkAccessibility()
-
         if !trusted {
-            // 未授权时静默等待，不阻碍主界面
             print("[KeyMonitor] Accessibility permission not yet granted.")
         }
 
         let worker = KeyMonitorWorker(
-            onKeyStroke: { [weak self] stroke in
-                self?.didReceiveKeyStroke(stroke)
+            onPress: { [weak self] press, isAutoRepeat in
+                self?.handlePress(press, isAutoRepeat: isAutoRepeat)
             },
-            onModifiersReleased: { [weak self] in
-                self?.didReleaseModifiers()
+            onRelease: { [weak self] keyCode in
+                self?.handleRelease(keyCode: keyCode)
             }
         )
         self.worker = worker
@@ -68,7 +95,6 @@ public final class KeyMonitor: ObservableObject {
         self.isMonitoring = true
     }
 
-    /// 停止全局监听
     public func stop() {
         worker?.stop()
         worker = nil
@@ -76,140 +102,190 @@ public final class KeyMonitor: ObservableObject {
         clearStroke()
     }
 
-    /// 清空当前按键展示
+    /// 清空当前展示
     public func clearStroke() {
         removalTasks.values.forEach { $0.cancel() }
         removalTasks.removeAll()
         punchCounters.removeAll()
-        isCurrentStrokeActiveModifier = false
-        withAnimation(queueReorderAnimation) {
+        heldKeyCodes.removeAll()
+        lastStrokeIsUnreleasedModifier = false
+        withAnimation(exitAnimation) {
             activeStrokes.removeAll()
         }
     }
 
-    /// 模拟按键（用于偏好设置预览及测试）
-    public func simulateKeyStroke(_ stroke: KeyStroke) {
-        didReceiveKeyStroke(stroke)
-    }
+    // MARK: - 上台调度
 
-    /// 模拟修饰键松开（用于测试）
-    public func simulateModifierRelease() {
-        didReleaseModifiers()
-    }
+    private var capacity: Int { AppSettings.Defaults.maxVisibleGroups }
 
-    // MARK: - 按键派发（队列容量可配置，先进先出）
+    /// 按下：过滤 → 就地升级 / 连按合并 → 追加 → 进入长按驻留
+    public func handlePress(_ press: KeyPress, isAutoRepeat: Bool = false) {
+        guard AppSettings.shared.isEnabled, press.stroke.isDisplayable else { return }
 
-    /// 标记当前最新展示的按键是否是“尚未松开的纯修饰键”
-    private var isCurrentStrokeActiveModifier: Bool = false
+        let stroke = press.stroke
 
-    /// 当前同屏容量：跟随用户设置（1 ~ 4），最小值为 1，避免配置异常时清空队列
-    private var currentCapacity: Int {
-        max(1, AppSettings.shared.maxVisibleKeys)
-    }
-
-    private func didReleaseModifiers() {
-        self.isCurrentStrokeActiveModifier = false
-    }
-
-    private func didReceiveKeyStroke(_ newStroke: KeyStroke) {
-        guard AppSettings.shared.isEnabled else { return }
-
-        var target: KeyStroke = newStroke
-
-        withAnimation(self.queueReorderAnimation) {
-            if self.isCurrentStrokeActiveModifier,
-               let last = self.activeStrokes.last,
-               last.isModifierOnly,
-               (newStroke.isModifierOnly || !newStroke.modifiers.isEmpty) {
-                // 就地升级替换最后一个未松开的修饰键（复用原 id，保证卡片就地生长而非交叉淡换）
-                let upgraded = KeyStroke(
-                    id: last.id,
-                    modifiers: newStroke.modifiers,
-                    content: newStroke.content,
-                    rawIdentifier: newStroke.rawIdentifier,
-                    isSpecialFunctionKey: newStroke.isSpecialFunctionKey,
-                    isModifierOnly: newStroke.isModifierOnly,
-                    timestamp: newStroke.timestamp,
-                    repeatCount: newStroke.repeatCount
-                )
-                self.activeStrokes[self.activeStrokes.count - 1] = upgraded
-                target = upgraded
-            } else if AppSettings.shared.showRepeatCount,
-                      let last = self.activeStrokes.last,
-                      last.rawIdentifier == newStroke.rawIdentifier {
-                // 连按合并（showRepeatCount 开启且标识一致时递增次数，同一卡片原位更新）
-                self.activeStrokes[self.activeStrokes.count - 1].repeatCount &+= 1
-                target = self.activeStrokes[self.activeStrokes.count - 1]
-            } else {
-                // 普通追加（同时按多个算一个；超出容量时移除最左侧最早按下的元素）
-                let capacity = self.currentCapacity
-                while self.activeStrokes.count >= capacity, let removed = self.activeStrokes.first {
-                    self.activeStrokes.removeFirst()
-                    self.removalTasks[removed.id]?.cancel()
-                    self.removalTasks.removeValue(forKey: removed.id)
-                    self.punchCounters.removeValue(forKey: removed.id)
-                }
-                self.activeStrokes.append(newStroke)
-                target = newStroke
-            }
+        // 1. 键盘自动重复：只累加次数，不新增卡片、不重置驻留
+        if isAutoRepeat,
+           let last = activeStrokes.last,
+           last.rawIdentifier == stroke.rawIdentifier {
+            bumpRepeat(on: last.id)
+            return
         }
 
-        // 仅对目标卡递增冲击计数，保证只有目标卡自身发生振颤
-        self.punchCounters[target.id, default: 0] &+= 1
-        self.isCurrentStrokeActiveModifier = newStroke.isModifierOnly
+        // 2. 就地升级：⌘ → ⌘S 时复用原卡片 id，让它原地生长而不是交叉淡换
+        if lastStrokeIsUnreleasedModifier,
+           let last = activeStrokes.last,
+           last.isModifierOnly,
+           !stroke.isModifierOnly || !stroke.modifiers.isEmpty {
+            let upgraded = KeyStroke(
+                id: last.id,
+                modifiers: stroke.modifiers,
+                legend: stroke.legend,
+                rawIdentifier: stroke.rawIdentifier,
+                isSpecialKey: stroke.isSpecialKey,
+                isModifierOnly: stroke.isModifierOnly,
+                timestamp: stroke.timestamp,
+                repeatCount: 1
+            )
+            replacementInPlace(upgraded)
+            heldKeyCodes[upgraded.id] = press.keyCode
+            cancelRemoval(for: upgraded.id)
+            punchCounters[upgraded.id, default: 0] &+= 1
+            lastStrokeIsUnreleasedModifier = stroke.isModifierOnly
+            return
+        }
 
-        // 为该按键重新调度超时自动移除（就地升级与连按时顺延超时计时）
-        self.scheduleRemoval(for: target.id, duration: AppSettings.shared.displayDuration)
+        // 3. 连按合并：同一标识的连续按下原地计数（可在设置里关闭）
+        if AppSettings.shared.showRepeatCount,
+           let last = activeStrokes.last,
+           last.rawIdentifier == stroke.rawIdentifier {
+            bumpRepeat(on: last.id)
+            heldKeyCodes[last.id] = press.keyCode
+            cancelRemoval(for: last.id)
+            punchCounters[last.id, default: 0] &+= 1
+            lastStrokeIsUnreleasedModifier = stroke.isModifierOnly
+            return
+        }
+
+        // 4. 普通追加：超出容量时挤掉最左侧最早的一组
+        withAnimation(enterAnimation) {
+            while activeStrokes.count >= capacity, let removed = activeStrokes.first {
+                activeStrokes.removeFirst()
+                heldKeyCodes.removeValue(forKey: removed.id)
+                removalTasks[removed.id]?.cancel()
+                removalTasks.removeValue(forKey: removed.id)
+                punchCounters.removeValue(forKey: removed.id)
+            }
+            activeStrokes.append(stroke)
+        }
+
+        heldKeyCodes[stroke.id] = press.keyCode
+        cancelRemoval(for: stroke.id)
+        punchCounters[stroke.id, default: 0] &+= 1
+        lastStrokeIsUnreleasedModifier = stroke.isModifierOnly
     }
 
-    private func scheduleRemoval(for strokeId: UUID, duration: Double) {
-        // 先取消旧任务，避免提前触发移除（支持顺延）
-        removalTasks[strokeId]?.cancel()
+    /// 松开：解除长按驻留，并从此刻开始计时淡出
+    public func handleRelease(keyCode: CGKeyCode) {
+        if let entry = heldKeyCodes.first(where: { $0.value == keyCode }) {
+            heldKeyCodes.removeValue(forKey: entry.key)
+            scheduleRemoval(for: entry.key, after: AppSettings.shared.displayDuration)
+        }
 
-        removalTasks[strokeId] = Task { @MainActor [weak self] in
+        // 纯修饰键卡片已不再被按住 → 后续按键必须新开一组，而不是继续就地升级
+        if let last = activeStrokes.last, last.isModifierOnly, heldKeyCodes[last.id] == nil {
+            lastStrokeIsUnreleasedModifier = false
+        }
+    }
+
+    // MARK: - 内部工具
+
+    private func bumpRepeat(on id: UUID) {
+        guard let index = activeStrokes.firstIndex(where: { $0.id == id }) else { return }
+        withAnimation(.spring(duration: 0.24, bounce: 0.22)) {
+            activeStrokes[index].repeatCount &+= 1
+        }
+    }
+
+    /// 原位替换（保持队列位置不变，卡片内容原地变形）
+    private func replacementInPlace(_ stroke: KeyStroke) {
+        guard let index = activeStrokes.firstIndex(where: { $0.id == stroke.id }) else { return }
+        withAnimation(enterAnimation) {
+            activeStrokes[index] = stroke
+        }
+    }
+
+    private func cancelRemoval(for id: UUID) {
+        removalTasks[id]?.cancel()
+        removalTasks[id] = nil
+    }
+
+    private func scheduleRemoval(for id: UUID, after duration: Double) {
+        cancelRemoval(for: id)
+
+        removalTasks[id] = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(max(0.05, duration) * 1_000_000_000))
             } catch {
                 return
             }
 
-            guard !Task.isCancelled, let self = self else { return }
+            guard !Task.isCancelled, let self else { return }
 
-            // 二次校验队列中仍包含该卡片
-            guard self.activeStrokes.contains(where: { $0.id == strokeId }) else {
-                self.removalTasks.removeValue(forKey: strokeId)
-                self.punchCounters.removeValue(forKey: strokeId)
+            guard self.activeStrokes.contains(where: { $0.id == id }) else {
+                self.removalTasks.removeValue(forKey: id)
+                self.punchCounters.removeValue(forKey: id)
                 return
             }
 
-            withAnimation(self.queueReorderAnimation) {
-                self.activeStrokes.removeAll(where: { $0.id == strokeId })
+            withAnimation(self.exitAnimation) {
+                self.activeStrokes.removeAll(where: { $0.id == id })
             }
-
-            self.removalTasks.removeValue(forKey: strokeId)
-            self.punchCounters.removeValue(forKey: strokeId)
+            self.removalTasks.removeValue(forKey: id)
+            self.punchCounters.removeValue(forKey: id)
         }
+    }
+
+    // MARK: - 预览与测试
+
+    /// 立即展示一次按键并在停留时长后自动淡出（偏好设置预览用，不涉及长按）
+    public func simulateKeyStroke(_ stroke: KeyStroke) {
+        guard stroke.isDisplayable else { return }
+        withAnimation(enterAnimation) {
+            while activeStrokes.count >= capacity {
+                activeStrokes.removeFirst()
+            }
+            activeStrokes.append(stroke)
+        }
+        punchCounters[stroke.id, default: 0] &+= 1
+        scheduleRemoval(for: stroke.id, after: AppSettings.shared.displayDuration)
+    }
+
+    /// 当前是否有卡片仍被物理按住（测试用）
+    public func isHolding(strokeID: UUID) -> Bool {
+        heldKeyCodes[strokeID] != nil
     }
 }
 
-// MARK: - 后台工作线程实现
+// MARK: - 后台工作线程
 
 private final class KeyMonitorWorker: @unchecked Sendable {
-    private let onKeyStroke: @MainActor @Sendable (KeyStroke) -> Void
-    private let onModifiersReleased: @MainActor @Sendable () -> Void
+    private let onPress: @MainActor @Sendable (KeyPress, Bool) -> Void
+    private let onRelease: @MainActor @Sendable (CGKeyCode) -> Void
+
     private var thread: Thread?
     private var runLoop: CFRunLoop?
     private var machPort: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var isRunning: Bool = false
+    private var isRunning = false
     private var pressedModifierKeyCodes = Set<CGKeyCode>()
 
     init(
-        onKeyStroke: @escaping @MainActor @Sendable (KeyStroke) -> Void,
-        onModifiersReleased: @escaping @MainActor @Sendable () -> Void
+        onPress: @escaping @MainActor @Sendable (KeyPress, Bool) -> Void,
+        onRelease: @escaping @MainActor @Sendable (CGKeyCode) -> Void
     ) {
-        self.onKeyStroke = onKeyStroke
-        self.onModifiersReleased = onModifiersReleased
+        self.onPress = onPress
+        self.onRelease = onRelease
     }
 
     func start() {
@@ -227,14 +303,12 @@ private final class KeyMonitorWorker: @unchecked Sendable {
 
     func stop() {
         isRunning = false
-        if let runLoop = runLoop {
-            CFRunLoopStop(runLoop)
-        }
-        if let machPort = machPort {
+        if let runLoop { CFRunLoopStop(runLoop) }
+        if let machPort {
             CGEvent.tapEnable(tap: machPort, enable: false)
             CFMachPortInvalidate(machPort)
         }
-        if let source = runLoopSource, let runLoop = runLoop {
+        if let source = runLoopSource, let runLoop {
             CFRunLoopRemoveSource(runLoop, source, .commonModes)
         }
         machPort = nil
@@ -247,12 +321,15 @@ private final class KeyMonitorWorker: @unchecked Sendable {
     private func runThread() {
         self.runLoop = CFRunLoopGetCurrent()
 
-        // 监听 keyDown 与 flagsChanged 事件
-        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
+        // keyDown 用于「按下」，keyUp 用于「松开」（长按驻留的结束信号），
+        // flagsChanged 覆盖修饰键的按下与松开
+        let eventMask: CGEventMask =
+            (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
+            | (1 << CGEventType.flagsChanged.rawValue)
 
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
 
-        // 优先使用 sessionEventTap，若失败则尝试 hidEventTap
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -268,7 +345,7 @@ private final class KeyMonitorWorker: @unchecked Sendable {
             callback: eventTapCallback,
             userInfo: selfPtr
         ) else {
-            print("[KeyMonitorWorker] Failed to create CGEventTap. Please ensure Accessibility permissions are granted.")
+            print("[KeyMonitorWorker] Failed to create CGEventTap. Please grant Accessibility permission.")
             return
         }
 
@@ -284,183 +361,161 @@ private final class KeyMonitorWorker: @unchecked Sendable {
     }
 
     fileprivate func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) {
-        // 1. 处理超时与意外禁用自动恢复机制
+        // 1. 高负载超时 / 被用户输入禁用后的自愈
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = machPort {
                 CGEvent.tapEnable(tap: tap, enable: true)
-                print("[KeyMonitorWorker] CGEventTap re-enabled after timeout/disable event.")
+                print("[KeyMonitorWorker] CGEventTap re-enabled after disable event.")
             }
             return
         }
 
-        // 2. 检查密码框安全输入静默降级（绝不崩溃）
-        if IsSecureEventInputEnabled() {
-            // 系统正在进行密码/安全凭据录入，静默跳过保护用户隐私
-            return
-        }
+        // 2. 密码框 / 安全输入：静默跳过，绝不记录也不展示
+        if IsSecureEventInputEnabled() { return }
 
-        // 3. 处理按键按下与修饰键变更
-        if type == .keyDown {
+        switch type {
+        case .keyDown:
             processKeyDown(event: event)
-        } else if type == .flagsChanged {
+        case .keyUp:
+            processKeyUp(event: event)
+        case .flagsChanged:
             processFlagsChanged(event: event)
+        default:
+            break
         }
     }
+
+    // MARK: 修饰键（flagsChanged）
 
     private func processFlagsChanged(event: CGEvent) {
         let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
 
-        // 判定该修饰键本次是按下还是释放
         let isDown: Bool
         switch keyCode {
-        case 54, 55: // Command (RightCommand, Command)
+        case 54, 55:  // Command / RightCommand
             isDown = flags.contains(.maskCommand)
-        case 58, 61: // Option (Option, RightOption)
+        case 58, 61:  // Option / RightOption
             isDown = flags.contains(.maskAlternate)
-        case 59, 62: // Control (Control, RightControl)
+        case 59, 62:  // Control / RightControl
             isDown = flags.contains(.maskControl)
-        case 56, 60: // Shift (Shift, RightShift)
+        case 56, 60:  // Shift / RightShift
             isDown = flags.contains(.maskShift)
-        case 57: // CapsLock
-            // CapsLock 每次按下触发切换，均视为一次有效单按
-            isDown = true
+        case 57:      // CapsLock：每次按下都切换一次状态，视为一次有效按键
+            isDown = !pressedModifierKeyCodes.contains(57)
         case 63, 179: // Fn / Globe
             if flags.contains(.maskSecondaryFn) {
                 isDown = true
-            } else if pressedModifierKeyCodes.contains(keyCode) {
-                isDown = false
             } else {
-                isDown = true
+                isDown = false
             }
         default:
-            isDown = false
+            return
         }
 
         if isDown {
             pressedModifierKeyCodes.insert(keyCode)
         } else {
-            pressedModifierKeyCodes.remove(keyCode)
-        }
-
-        if !isDown {
-            // 当修饰键释放，若已无按下的修饰键，通知主线程释放状态
-            if pressedModifierKeyCodes.isEmpty {
-                let releaseCallback = self.onModifiersReleased
-                Task { @MainActor in
-                    releaseCallback()
-                }
+            let wasPressed = pressedModifierKeyCodes.remove(keyCode) != nil
+            // 只有确实处于按下状态时才派发松开，避免噪声事件打断驻留状态
+            if wasPressed {
+                let release = onRelease
+                Task { @MainActor in release(keyCode) }
             }
             return
         }
 
-        // 解析当前所有处于激活状态的修饰键
-        var activeModifiers: [KeyModifier] = []
-        if flags.contains(.maskControl) {
-            activeModifiers.append(.control)
-        }
-        if flags.contains(.maskAlternate) {
-            activeModifiers.append(.option)
-        }
-        if flags.contains(.maskShift) {
-            activeModifiers.append(.shift)
-        }
-        if flags.contains(.maskCommand) {
-            activeModifiers.append(.command)
-        }
-
-        let stroke: KeyStroke
-
-        if keyCode == 57 {
-            // CapsLock 单独按下
-            stroke = KeyStroke(
-                modifiers: activeModifiers,
-                content: .symbol(name: "capslock", fallbackText: "⇪"),
-                rawIdentifier: "caps_lock",
-                isSpecialFunctionKey: true,
-                isModifierOnly: true,
-                timestamp: Date()
-            )
-        } else if keyCode == 63 || keyCode == 179 {
-            // FN / 地球仪键
-            stroke = KeyStroke(
-                modifiers: activeModifiers,
-                content: .symbol(name: "globe", fallbackText: "Fn"),
-                rawIdentifier: "fn",
-                isSpecialFunctionKey: true,
-                isModifierOnly: true,
-                timestamp: Date()
-            )
-        } else if !activeModifiers.isEmpty {
-            // 标准修饰键 (Control, Option, Shift, Command)
-            // 按照 macOS 官方标准顺序排序：⌃ ⌥ ⇧ ⌘
-            let sorted = activeModifiers.sorted(by: { $0.sortOrder < $1.sortOrder })
-            let lastMod = sorted.last!
-            let prefixMods = Array(sorted.dropLast())
-            let rawId = sorted.map { $0.rawValue }.joined(separator: "+")
-
-            stroke = KeyStroke(
-                modifiers: prefixMods,
-                content: .symbol(name: lastMod.sfSymbol, fallbackText: lastMod.glyph),
-                rawIdentifier: rawId,
-                isSpecialFunctionKey: true,
-                isModifierOnly: true,
-                timestamp: Date()
-            )
-        } else {
-            return
-        }
-
-        let callback = self.onKeyStroke
-        Task { @MainActor in
-            callback(stroke)
-        }
+        let stroke = makeModifierStroke(keyCode: keyCode, flags: flags)
+        let press = KeyPress(stroke: stroke, keyCode: keyCode)
+        let callback = onPress
+        Task { @MainActor in callback(press, false) }
     }
 
+    /// 构造「仅按下了修饰键」这一中间态的卡片
+    private func makeModifierStroke(keyCode: CGKeyCode, flags: CGEventFlags) -> KeyStroke {
+        var activeModifiers: [KeyModifier] = []
+        if flags.contains(.maskControl) { activeModifiers.append(.control) }
+        if flags.contains(.maskAlternate) { activeModifiers.append(.option) }
+        if flags.contains(.maskShift) { activeModifiers.append(.shift) }
+        if flags.contains(.maskCommand) { activeModifiers.append(.command) }
+
+        // CapsLock 自成一体，不参与组合前缀
+        if keyCode == 57 {
+            return KeyStroke(
+                modifiers: [],
+                legend: KeyLegend(symbol: "capslock", text: "caps lock", widthUnits: 1.75),
+                rawIdentifier: "caps_lock",
+                isSpecialKey: true,
+                isModifierOnly: true
+            )
+        }
+
+        // Fn / Globe
+        if keyCode == 63 || keyCode == 179 {
+            return KeyStroke(
+                modifiers: [],
+                legend: KeyLegend(symbol: "globe", text: "fn", widthUnits: 1.5),
+                rawIdentifier: "fn",
+                isSpecialKey: true,
+                isModifierOnly: true
+            )
+        }
+
+        // 标准修饰键：⌃⌥⇧⌘ 按标准顺序排列，最后一个是本次按下者
+        let sorted = activeModifiers.sorted(by: { $0.sortOrder < $1.sortOrder })
+        guard let main = sorted.last else {
+            // 理论上不可达（已确认 isDown），兜底给一颗空命令键
+            return KeyStroke(legend: KeyModifier.command.legend, rawIdentifier: "command", isSpecialKey: true, isModifierOnly: true)
+        }
+        return KeyStroke(
+            modifiers: Array(sorted.dropLast()),
+            legend: main.legend,
+            rawIdentifier: sorted.map(\.rawValue).joined(separator: "+"),
+            isSpecialKey: true,
+            isModifierOnly: true
+        )
+    }
+
+    // MARK: 普通按键
+
     private func processKeyDown(event: CGEvent) {
-        let flags = event.flags
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+        let press = makeKeyPress(event: event, keyCode: keyCode)
+        let callback = onPress
+        Task { @MainActor in callback(press, isAutoRepeat) }
+    }
 
-        // 解析修饰键
+    private func processKeyUp(event: CGEvent) {
+        let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+        let release = onRelease
+        Task { @MainActor in release(keyCode) }
+    }
+
+    private func makeKeyPress(event: CGEvent, keyCode: CGKeyCode) -> KeyPress {
+        let flags = event.flags
         var modifiers: [KeyModifier] = []
-        if flags.contains(.maskControl) {
-            modifiers.append(.control)
-        }
-        if flags.contains(.maskAlternate) {
-            modifiers.append(.option)
-        }
-        if flags.contains(.maskShift) {
-            modifiers.append(.shift)
-        }
-        if flags.contains(.maskCommand) {
-            modifiers.append(.command)
-        }
+        if flags.contains(.maskControl) { modifiers.append(.control) }
+        if flags.contains(.maskAlternate) { modifiers.append(.option) }
+        if flags.contains(.maskShift) { modifiers.append(.shift) }
+        if flags.contains(.maskCommand) { modifiers.append(.command) }
 
-        // 解析键位码内容
-        let keyInfo = KeyCodeMapper.map(event: event, keyCode: keyCode)
-
-        // 构造唯一标示符用于连按判断（例如 "cmd+option+c" 或 "esc"）
-        let modStr = modifiers.map { $0.rawValue }.joined(separator: "+")
-        let rawIdentifier = modStr.isEmpty ? keyInfo.identifier : "\(modStr)+\(keyInfo.identifier)"
+        let info = KeyCodeMapper.map(event: event, keyCode: keyCode)
+        let modPrefix = modifiers.sorted(by: { $0.sortOrder < $1.sortOrder }).map(\.rawValue).joined(separator: "+")
+        let identifier = modPrefix.isEmpty ? info.identifier : "\(modPrefix)+\(info.identifier)"
 
         let stroke = KeyStroke(
             modifiers: modifiers,
-            content: keyInfo.content,
-            rawIdentifier: rawIdentifier,
-            isSpecialFunctionKey: keyInfo.isSpecialFunctionKey,
-            isModifierOnly: false,
-            timestamp: Date()
+            legend: info.legend,
+            rawIdentifier: identifier,
+            isSpecialKey: info.isSpecialKey,
+            isModifierOnly: false
         )
-
-        // 固定全按键模式：所有按键都直接派发，不再做快捷键过滤
-        let callback = self.onKeyStroke
-        Task { @MainActor in
-            callback(stroke)
-        }
+        return KeyPress(stroke: stroke, keyCode: keyCode)
     }
 }
 
-// MARK: - CGEventTap 回调函数
+// MARK: - CGEventTap 回调
 
 private func eventTapCallback(
     proxy: CGEventTapProxy,
@@ -468,14 +523,12 @@ private func eventTapCallback(
     event: CGEvent,
     refcon: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
-    guard let refcon = refcon else {
-        return Unmanaged.passUnretained(event)
-    }
+    guard let refcon else { return Unmanaged.passUnretained(event) }
 
     let worker = Unmanaged<KeyMonitorWorker>.fromOpaque(refcon).takeUnretainedValue()
     worker.handleEvent(proxy: proxy, type: type, event: event)
 
-    // listenOnly 事件回调必须返回「未额外持有」的事件对象：
-    // 早期版本使用 passRetained 会让每个按键事件多一次 retain，长时间后台运行会持续泄漏。
+    // listenOnly 回调必须返回「未额外持有」的事件对象，
+    // 早期版本用 passRetained 会让每个事件多一次 retain，长时间后台运行持续泄漏。
     return Unmanaged.passUnretained(event)
 }

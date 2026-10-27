@@ -2,289 +2,166 @@
 //  KeycapItemView.swift
 //  KeyGlow
 //
+//  单颗实体键帽的渲染。
+//
+//  0.100 按 Keystroke Pro 的实测结构重写，自上而下只有五层，没有内凹碟面、没有磨砂噪点、
+//  也没有左右斜壁（原版顶面就是一块平的渐变塑料）：
+//     1. 侧壁／前唇：高度 0.097H，颜色是键帽色压到 25%（彩色）或轻微压暗（中性）；
+//     2. 折角：顶面下沿一道暗线，确保顶面不会重新读成平面；
+//     3. 顶面：纵向渐变，方向由材质决定（中性上亮下暗、彩色上暗下亮）；
+//     4. 唇线：顶面底边被打亮 8~10%，模拟前唇反光；
+//     5. 字符层：符号右上 + 标签右下，或单字符居中。
+//
 
 import SwiftUI
 
-/// 单个物理质感拟物（Skeuomorph）实体键帽组件
-///
-/// 颜色不再由视图内部猜测，而是由调用方传入 `KeycapPalette`（来自当前主题 + 按键角色），
-/// 视图本身只负责「材质、光照、排版」三件事。
-///
-/// 0.2 材质重构：
-/// 旧版提供哑光 / 磨砂玻璃 / 极光染色三种材质，其中磨砂的 `ultraThinMaterial` 会把主题色洗成灰白、
-/// 极光染色则把键面压暗到原色的 65% 再叠一层染色，两者都让「用户选的颜色」无法忠实呈现。
-/// 新版收敛为**单一材质**，设计目标只有三条：
-///   1. 原色直出：顶面渐变直接取 `palette.top / bottom`，不再叠白色大高光或压暗染色；
-///   2. 明亮优先：提亮幅度收窄、侧壁与折角暗部降到最低，键帽整体比旧版亮一档；
-///   3. 浅色优先：高光只保留顶部一道窄受光带，浅色键帽不会被漂白成一片糊。
-///
-/// 立体结构沿用 0.14 的「单一侧壁轮廓 + 顶面覆盖」：
-/// 键帽本体是一整块拉长的圆角矩形（含前壁厚度），顶面按水平方向向内收窄后覆盖其上，
-/// 于是左右两侧的斜壁、底部的前壁都成为真实可见的体块。
+/// 单颗实体键帽
 public struct KeycapItemView: View {
-    public let content: KeyDisplayContent
+    public let legend: KeyLegend
     public let palette: KeycapPalette
-    public let borderStyle: KeycapBorderStyle
+    public let metrics: KeycapMetrics
 
-    public var minWidth: CGFloat = 54
-    public var height: CGFloat = 54
-    public var opacity: Double = 1.0
-
-    public init(
-        content: KeyDisplayContent,
-        palette: KeycapPalette,
-        borderStyle: KeycapBorderStyle = .adaptive,
-        minWidth: CGFloat = 54,
-        height: CGFloat = 54,
-        opacity: Double = 1.0
-    ) {
-        self.content = content
+    public init(legend: KeyLegend, palette: KeycapPalette, metrics: KeycapMetrics) {
+        self.legend = legend
         self.palette = palette
-        self.borderStyle = borderStyle
-        self.minWidth = minWidth
-        self.height = height
-        self.opacity = opacity
+        self.metrics = metrics
     }
 
-    // MARK: - 动态尺寸与字体规范（根据键帽高度自适应缩放）
-
-    private var cornerRadius: CGFloat {
-        max(6, round(height * 0.22))
-    }
-
-    private var singleCharFontSize: CGFloat {
-        max(11, round(height * 0.33))
-    }
-
-    private var multiCharFontSize: CGFloat {
-        max(10, round(height * 0.24))
-    }
-
-    private var horizontalPadding: CGFloat {
-        max(6, round(height * 0.16))
-    }
-
-    // MARK: - 立体几何规范（全部由键帽高度派生，缩放到任意尺寸比例不变）
-
-    /// 前壁高度：键帽的「物理厚度」，54pt 键帽约 5pt
-    private var wallDepth: CGFloat {
-        max(3, round(height * 0.095))
-    }
-
-    /// 顶面的水平收窄量：收窄后左右两侧的斜壁才会露出来，
-    /// 这是「平面贴纸」与「实体键帽」最直接的差别
-    private var sideInset: CGFloat {
-        max(1, round(height * 0.025))
-    }
-
-    /// 顶面圆角：与底座同心收窄，保证转角处侧壁宽度与直边一致，不出现「双描边」
-    private var faceCornerRadius: CGFloat {
-        max(5, cornerRadius - sideInset)
-    }
-
-    /// 侧壁基色：由顶面下沿再压暗派生（而不是直接复用 `extrusion`），
-    /// 使「顶面 → 侧壁」成为连续过渡，避免一圈突兀的深色贴边。
-    /// 压暗幅度较旧版收窄，避免明亮键帽被一圈重色边包住而显脏。
-    private var wallBaseColor: KeyColorRGB {
-        palette.bottom.mixed(with: .black, ratio: palette.isLightSurface ? 0.10 : 0.20)
-    }
-
-    /// SF Symbols 各自的光学包围盒并不一致（⌃ 明显偏小、⌘ 偏大），
-    /// 统一按符号做一次视觉尺寸校正，保证一排修饰键看起来是「同号字」。
-    private var symbolOpticalScale: CGFloat {
-        guard case .symbol(let name, _) = content else { return 1.0 }
-        switch name {
-        case "command": return 0.94
-        case "control": return 1.16
-        case "option": return 1.03
-        case "shift": return 1.0
-        case "capslock": return 1.02
-        default: return 1.0
-        }
-    }
-
-    // MARK: - 主体渲染
+    private var width: CGFloat { metrics.keyWidth(units: legend.widthUnits) }
 
     public var body: some View {
-        innerContent
-            .padding(.horizontal, horizontalPadding)
-            .frame(minWidth: minWidth, minHeight: height)
-            .fixedSize(horizontal: true, vertical: false)
-            // 键帽壳体绘制在内容之外，前壁向下溢出布局尺寸，因此外层预留 wallDepth
-            .background(alignment: .top) { keycapShell }
-            .frame(minHeight: height + wallDepth, alignment: .top)
-            .opacity(opacity)
-            // 三层投影：彩色环境光晕 → 大范围柔和接触影 → 紧贴底沿的锐利投影，
-            // 首层负责让键帽"落在"主题色的环境里，后两层负责把键帽压实在桌面上
-            .shadow(color: palette.glowColor, radius: 3, x: 0, y: 2)
-            .shadow(color: Color.black.opacity(0.14), radius: 6, x: 1, y: 4)
-            .shadow(color: Color.black.opacity(0.26), radius: 1.2, x: 0, y: 1)
+        ZStack(alignment: .top) {
+            sideWall
+            topFace
+            legendLayer
+        }
+        .frame(width: width, height: metrics.height + metrics.lipDepth)
+        // 深度漫反射投影：大扩散、低透明度的环境遮蔽 + 一道极紧的接触影
+        .shadow(color: Color.black.opacity(0.26), radius: metrics.height * 0.11, x: 0, y: metrics.height * 0.05)
+        .shadow(color: Color.black.opacity(0.14), radius: 0.8, x: 0, y: 0.8)
     }
 
-    // MARK: - 内部图标/文本呈现
+    // MARK: - 侧壁／前唇
+
+    private var sideWall: some View {
+        RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        palette.wall.lightened(0.06).color,
+                        palette.wall.color,
+                        palette.wall.darkened(0.18).color
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: width, height: metrics.height + metrics.lipDepth)
+    }
+
+    // MARK: - 顶面
+
+    private var topFace: some View {
+        RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: palette.faceColors,
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: width, height: metrics.height)
+            // 顶边受光带：从上沿向下渐隐（不能用硬边窄条，否则会在键面上画出一个内嵌方框）
+            .overlay {
+                RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            stops: [
+                                .init(color: Color.white.opacity(palette.usesDarkLegend ? 0.26 : 0.13), location: 0.0),
+                                .init(color: Color.white.opacity(palette.usesDarkLegend ? 0.06 : 0.03), location: 0.45),
+                                .init(color: Color.clear, location: 1.0)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            // 底边唇线：前唇反打亮的那一道
+            .overlay(alignment: .bottom) { bottomLip }
+            // 折角：顶面落进前唇之前先压暗
+            .overlay(alignment: .bottom) { creaseLine }
+            // 微倒角描边：1px 顶亮底暗的物理边界
+            .overlay {
+                RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                    .strokeBorder(palette.borderHighlight, lineWidth: max(0.8, metrics.height * 0.017))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous))
+    }
+
+    private var bottomLip: some View {
+        LinearGradient(
+            colors: [Color.clear, palette.lip.color],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: max(1.5, metrics.height * 0.05))
+        .opacity(0.9)
+    }
+
+    private var creaseLine: some View {
+        LinearGradient(
+            colors: [Color.clear, palette.crease.color.opacity(0.85)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: max(2, metrics.height * 0.075))
+    }
+
+    // MARK: - 字符层
 
     @ViewBuilder
-    private var innerContent: some View {
-        switch content {
-        case .symbol(let name, let fallback):
-            Image(systemName: name)
-                .font(.system(size: singleCharFontSize, weight: .semibold))
-                .scaleEffect(symbolOpticalScale)
-                .foregroundColor(palette.foregroundColor)
-                .shadow(color: palette.textShadowColor, radius: 0.5, x: 0, y: palette.isLightSurface ? 1 : -1)
-                .accessibilityLabel(fallback)
+    private var legendLayer: some View {
+        if let symbol = legend.symbol, let text = legend.text {
+            // 原版排版：符号右上、标签右下，两者右边缘对齐
+            VStack(alignment: .trailing, spacing: 0) {
+                Image(systemName: symbol)
+                    .font(.system(size: metrics.symbolFontSize, weight: .regular))
+                    .foregroundColor(palette.legendColor)
+                    .shadow(color: palette.legendShadowColor, radius: 0.5, x: 0, y: 0.5)
 
-        case .text(let str):
-            Text(str)
-                .font(.system(size: str.count > 2 ? multiCharFontSize : singleCharFontSize, weight: .semibold, design: .rounded))
-                .foregroundColor(palette.foregroundColor)
-                .shadow(color: palette.textShadowColor, radius: 0.5, x: 0, y: palette.isLightSurface ? 1 : -1)
+                Spacer(minLength: 0)
+
+                Text(text)
+                    .font(.system(size: metrics.labelFontSize, weight: .medium))
+                    .foregroundColor(palette.legendColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .shadow(color: palette.legendShadowColor, radius: 0.5, x: 0, y: 0.5)
+            }
+            .padding(metrics.legendInset)
+            .frame(width: width, height: metrics.height, alignment: .trailing)
+
+        } else if let symbol = legend.symbol {
+            // 只有符号：居中放大（方向键）
+            Image(systemName: symbol)
+                .font(.system(size: metrics.centeredSymbolFontSize, weight: .medium))
+                .foregroundColor(palette.legendColor)
+                .shadow(color: palette.legendShadowColor, radius: 0.6, x: 0, y: 0.6)
+                .frame(width: width, height: metrics.height)
+
+        } else if let text = legend.text {
+            // 只有文字：单字符大号居中，多字符（f1 / page up）居中缩小
+            Text(text)
+                .font(.system(
+                    size: legend.isSingleCharacter ? metrics.singleCharacterFontSize : metrics.labelFontSize * 1.55,
+                    weight: legend.isSingleCharacter ? .medium : .medium
+                ))
+                .foregroundColor(palette.legendColor)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
-                .accessibilityLabel(str)
+                .minimumScaleFactor(0.62)
+                .shadow(color: palette.legendShadowColor, radius: 0.6, x: 0, y: 0.6)
+                .padding(.horizontal, metrics.legendInset * 0.5)
+                .frame(width: width, height: metrics.height)
         }
-    }
-
-    // MARK: - 键帽壳体（侧壁 + 顶面）
-
-    /// 壳体自下而上三层：
-    /// 1. 侧壁：一整块「拉长的圆角矩形」，底部多出的 wallDepth 就是前壁厚度；
-    /// 2. 方向光：左亮右暗的柱面明暗，说明光从左上打来；
-    /// 3. 顶面：左右各收窄 sideInset 后覆盖其上，露出的边缘即斜壁。
-    private var keycapShell: some View {
-        ZStack(alignment: .top) {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(sideWallGradient)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(sideWallDirectionalLight)
-                )
-                .frame(height: height + wallDepth)
-
-            topFaceLayer
-                .padding(.horizontal, sideInset)
-                .frame(height: height)
-        }
-    }
-
-    /// 侧壁的纵向明暗：上沿接近顶面、越往下越暗，最后半段（前壁）压到最深
-    private var sideWallGradient: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: wallBaseColor.mixed(with: .white, ratio: 0.06).color, location: 0.0),
-                .init(color: wallBaseColor.color, location: 0.86),
-                .init(color: wallBaseColor.mixed(with: .black, ratio: 0.22).color, location: 1.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    /// 侧壁的横向方向光：左侧受光提亮、右侧入暗，与分层投影的偏移方向保持一致
-    private var sideWallDirectionalLight: LinearGradient {
-        LinearGradient(
-            stops: [
-                .init(color: Color.white.opacity(palette.isLightSurface ? 0.09 : 0.07), location: 0.0),
-                .init(color: .clear, location: 0.32),
-                .init(color: Color.black.opacity(palette.isLightSurface ? 0.09 : 0.15), location: 1.0)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
-    /// 顶面：材质底色 + 碟面光影 + 前壁折角 + 倒角描边
-    private var topFaceLayer: some View {
-        KeycapFaceBackground(palette: palette)
-            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-            .overlay(dishOverlay)
-            .overlay(frontEdgeCrease, alignment: .bottom)
-            .overlay(borderHighlight)
-    }
-
-    // MARK: - 拟物顶面微弧碟面层
-    //
-    // 唯一克制原则：这里所有白色叠加都是为了「让顶面看起来是一块有弧度的塑料」，
-    // 而不是为了提亮颜色。旧版 0.40 的白色高光会把上半键面漂白，彩色键帽因此显脏；
-    // 新版压到 0.18 以内，颜色由 `palette.top` 自己说话。
-
-    private var dishOverlay: some View {
-        ZStack {
-            // 顶部微弧受光带：只覆盖上沿一小段，不侵入字符区
-            LinearGradient(
-                stops: [
-                    .init(color: Color.white.opacity(palette.isLightSurface ? 0.20 : 0.16), location: 0.0),
-                    .init(color: Color.white.opacity(palette.isLightSurface ? 0.05 : 0.04), location: 0.42),
-                    .init(color: Color.clear, location: 0.75),
-                    .init(color: Color.black.opacity(palette.isLightSurface ? 0.025 : 0.07), location: 1.0)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-
-            // 左上角柔和镜面反射：模拟环境光在圆角处的聚拢
-            RadialGradient(
-                colors: [
-                    Color.white.opacity(palette.isLightSurface ? 0.13 : 0.09),
-                    Color.clear
-                ],
-                center: .topLeading,
-                startRadius: 0,
-                endRadius: round(height * 0.60)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-
-            // 中央内凹碟面光影：极轻，只为读成「凹面」而非平面
-            RadialGradient(
-                colors: [
-                    Color.black.opacity(palette.isLightSurface ? 0.014 : 0.05),
-                    Color.clear
-                ],
-                center: .center,
-                startRadius: 2,
-                endRadius: round(height * 0.52)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-        }
-    }
-
-    // MARK: - 顶面与前壁的交界折角（Crease）
-
-    /// 顶面下沿向内压暗，与下方前壁的暗部相接，
-    /// 形成「脸 → 壁」的真实转折；没有这道折角，顶面会重新读成一块平面
-    private var frontEdgeCrease: some View {
-        LinearGradient(
-            colors: [
-                Color.clear,
-                Color.black.opacity(palette.isLightSurface ? 0.07 : 0.16)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .frame(height: max(4, round(height * 0.11)))
-        .clipShape(RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous))
-    }
-
-    // MARK: - 边缘微倒角物理高光（Chamfer Border Highlight）
-
-    private var borderHighlight: some View {
-        RoundedRectangle(cornerRadius: faceCornerRadius, style: .continuous)
-            .strokeBorder(borderStyle.strokeGradient(for: palette), lineWidth: 1.2)
-    }
-}
-
-/// 键帽顶面底色（键帽本体与连按角标共用，保证二者的底色、色相与明度完全一致）
-///
-/// 单一材质下这里只做一件事：把主题给的 top / bottom 原样铺成纵向渐变。
-struct KeycapFaceBackground: View {
-    let palette: KeycapPalette
-
-    var body: some View {
-        LinearGradient(
-            colors: palette.topFaceColors,
-            startPoint: .top,
-            endPoint: .bottom
-        )
     }
 }

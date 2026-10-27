@@ -35,18 +35,18 @@ KeyGlow/
 │   │   ├── KeyMonitor.swift           # @MainActor 监听引擎 + 后台专用线程 KeyMonitorWorker
 │   │   └── KeyCodeMapper.swift        # Carbon/CGEvent 键码解析、Unicode 提取与 SF Symbols 映射
 │   ├── Models/                        # 数据模型与配置定义
-│   │   ├── AppSettings.swift          # 用户偏好持久化（UserDefaults）、配置迁移、快照导入导出
-│   │   ├── KeyStroke.swift            # 按键/组合键数据模型（含 SF Symbols / 修饰键等）
-│   │   ├── KeycapTheme.swift          # 【配色单一数据源】RGB 基元、色板派生、6 套主题 × 昼夜双档、外观模式
-│   │   ├── KeycapStyle.swift          # 键帽材质枚举（哑光实体、磨砂玻璃、极光染色，不含颜色）
-│   │   ├── DisplayAnchor.swift        # 5 种屏幕定位锚点（底部居中、左下、右下、顶部、跟随光标）
-│   │   └── DisplayMode.swift          # 显示过滤模式（仅快捷键模式、全按键模式）
+│   │   ├── AppSettings.swift          # 用户偏好持久化（UserDefaults）与配置迁移
+│   │   ├── KeyStroke.swift            # 按键/组合键模型：KeyModifier、KeyLegend（符号+标签+宽度）、显示策略
+│   │   ├── KeyColorRGB.swift          # 【颜色基元】sRGB 分量、混合、WCAG 亮度/对比度、系统强调色解析
+│   │   ├── KeycapMaterial.swift       # 【配色单一数据源】材质字典（中性/彩色/强调色）、五层色板派生、四色槽
+│   │   ├── KeycapShape.swift          # 键帽形态（Classic / Pill）与 KeycapMetrics 几何规范
+│   │   └── DisplayAnchor.swift        # 8 个屏幕吸附点（3×3 去掉中心）
 │   ├── UI/                            # 原生界面与悬浮层组件
-│   │   ├── OverlayPanelController.swift # KeyGlowPanel (穿透 NSPanel)、多显示器定位、外观模式绑定
-│   │   ├── OverlayContentView.swift   # 按键队列容器（右进左出 Spring 动效、可选键帽托盘）
-│   │   ├── KeycapView.swift           # 按键组合视图：按角色从主题取色 + 连按角标
-│   │   ├── KeycapItemView.swift       # 单个键帽的材质/光照/排版渲染（颜色由外部传入 palette）
-│   │   └── PreferencesView.swift      # 三页签偏好设置（外观 / 行为 / 高级）与实时预览
+│   │   ├── OverlayPanelController.swift # KeyGlowPanel (穿透 NSPanel)、铺满屏幕可见区域
+│   │   ├── OverlayContentView.swift   # 键帽组队列容器（右进左出、按锚点对齐）
+│   │   ├── KeycapGroupView.swift      # 一组按键：共享底板 / 胶囊两种形态 + 连按角标
+│   │   ├── KeycapItemView.swift       # 单颗键帽的五层材质/光照/排版渲染（颜色由外部传入 palette）
+│   │   └── PreferencesView.swift      # 三页签偏好设置（通用 / 外观 / 显示）与实时预览
 │   └── Assets.xcassets/               # 应用图标（16x16 ~ 1024x1024 全套尺寸）与色彩集
 ├── KeyGlowTests/                      # 单元测试（按键映射、修饰键排序、就地升级等）
 │   └── KeyGlowTests.swift
@@ -149,15 +149,37 @@ rm -rf dmg_staging
   ```
   严禁将动态 SwiftUI 尺寸反向推给 `NSPanel` 约束，否则会导致 Auto Layout 递归更新死锁崩溃。
 
-### 4.3 按键队列与修饰键连按升级逻辑
-- **队列容量**：`activeStrokes` 最多保留 **3 个** 按键。超额时移除最左侧最早按下的元素。
-- **动效方向**：严格遵循「**右边进、左边出**」流式过渡。
+### 4.3 按键队列、显示过滤与长按驻留
+- **显示过滤（0.100 起的硬约束）**：只有 `stroke.isDisplayable` 为真的按键才能上台面——
+  非字符键（F1–F12 / Fn / ⌘⌥⌃⇧ / 方向键 / esc / return / delete / tab / space 等），
+  或任意含修饰键的组合（⌘S、⌃⇧Tab）。**单独输入的字母、数字、标点必须静默丢弃**，
+  否则录屏会泄漏用户正在输入的文字内容。该判定写在 `KeyStroke.isDisplayable`，不要在视图层再做过滤。
+- **队列容量**：`activeStrokes` 最多保留 **4 组**（`AppSettings.Defaults.maxVisibleGroups`）。超额时移除最左侧最早的一组。
+- **长按驻留（Key Hold）**：事件掩码必须同时监听 `keyDown` / `keyUp` / `flagsChanged`。
+  按下时把物理键码记入 `heldKeyCodes`，**不启动**超时任务；收到对应 `keyUp` 后才开始计时。
+  停留时长因此从「松开时刻」起算，而不是「按下时刻」。
+- **动效方向**：严格遵循「**右边进、左边出**」流式过渡；入场放大弹入、出场淡出并轻微缩小。
 - **修饰键就地升级（In-place Replacement）**：
   - 单按修饰键（如按住 `⌘`）时立即展示卡片。
-  - 若修饰键尚未松开，用户继续按下另一个修饰键（如 `⌥`）或普通键（如 `C`），**必须就地升级替换最后一个未松开的卡片**，而不是在队列中生成多个碎片卡片。
+  - 若修饰键尚未松开，用户继续按下另一个修饰键（如 `⌥`）或普通键（如 `C`），**必须就地升级替换最后一个未松开的卡片**（复用原 `id`），而不是在队列中生成多个碎片卡片。
   - 用户松开所有修饰键后，下一次按键作为新卡片插入。
 - **Fn / Globe 键识别**：
-  现代 Mac 键盘 Globe/Fn 键码为 `179`，传统 Mac 键盘为 `63`。在 `KeyCodeMapper` 中必须正确解析为 `globe` SF Symbol 与 `"Fn"` 文本，禁止展示为未经映射的 `Key_179`。
+  现代 Mac 键盘 Globe/Fn 键码为 `179`，传统 Mac 键盘为 `63`。在 `KeyCodeMapper` 中必须正确解析为 `globe` SF Symbol 与 `"fn"` 文本，禁止展示为未经映射的 `key_179`。
+
+### 4.5 配色与几何不变量（改动前必读）
+配色与几何都锚定 Keystroke Pro v2 的实测数据（`design/keystroke-pro-visual-analysis.md`），
+以下规则由单元测试兜底，任何调整都必须让测试继续通过：
+
+- **材质方向不能反**：中性材质（铝 / 白 / 石墨 / 深空 / 玛瑙灰 / 白垩 / 中灰）**上亮下暗**；
+  彩色材质（朱红…品红 / 强调色）**上暗下亮**。把彩色键也做成上亮下暗，饱和度会被压成暗块。
+- **前唇与唇线**：`wall` 必须比 `faceBottom` 暗、`lip` 必须比 `faceBottom` 亮，否则键帽读不出厚度。
+- **字符色规则**：白字优先，仅当白字对比度低于 3:1 才翻深墨字（`KeycapPalette.usesDarkLegend`）。
+- **几何比例**（相对键帽高度 H）：宽度 0.97H、圆角 0.086H、前唇 0.097H、键间距 0.17H、
+  底板内边距 0.15H、底板圆角 0.21H。全部集中在 `KeycapMetrics`，视图不得自行算比例。
+- **宽度倍数**：command / option / control / shift 1.5u，escape / tab 1.25u，delete / return 1.75u，
+  space 2u，单字符与方向键 1u。
+- **配色数据只有一个入口**：`KeycapMaterial` → `KeycapPalette` → `KeycapColorSlots`。
+  视图只消费 palette，不得自己猜颜色、不得直接写死 `Color(hex:)`。
 
 ### 4.4 Swift 6 与并发模型（Concurrency）
 - `KeyMonitor` 标记为 `@MainActor`，所有对 UI 绑定的状态修改（`activeStrokes`、`punchTrigger`）必须在主线程调度。
